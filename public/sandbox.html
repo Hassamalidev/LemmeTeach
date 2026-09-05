@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Chalk sandbox</title>
+  </head>
+  <body>
+    <!--
+      This document is loaded into an iframe with sandbox="allow-scripts" and
+      no allow-same-origin, so it runs on an opaque origin: it cannot read the
+      app's localStorage, its IndexedDB, its DOM, or the learner's API key.
+
+      It hosts nothing itself. Its only job is to relay messages between the
+      app and a Web Worker, because a worker can be terminated instantly and a
+      runaway loop on this frame's own thread could not be.
+    -->
+    <script src="./sandbox-frame.js"></script>
+  </body>
+</html>

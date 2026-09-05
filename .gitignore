@@ -1,0 +1,15 @@
+node_modules/
+dist/
+dist-ssr/
+*.local
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.log
+npm-debug.log*
+coverage/
+evals/results/
+# Vendored at build time by npm run vendor:pyodide — around 10 MB, and the
+# default is to load Pyodide from a CDN, so it does not belong in the repo.
+public/pyodide/

@@ -1,0 +1,716 @@
+/*
+ * Board styles (§16).
+ *
+ * Content is written, not faded in: text clips left to right, strokes draw
+ * along their path, diagram edges extend from source to target. That drawing
+ * motion is the one place worth spending effort on. Everywhere else motion
+ * only confirms an action.
+ *
+ * `prefers-reduced-motion` collapses every reveal to instant. Narration is
+ * unaffected — the lesson is the same lesson, it just stops moving.
+ */
+
+.board-shell {
+  --page-scale: 1;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--board-bg);
+  color: var(--board-ink);
+  overflow: hidden;
+  container-type: inline-size;
+}
+
+.board-page {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 40px;
+  padding: clamp(20px, 3.4cqw, 52px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  font-size: calc(18px * var(--page-scale));
+  line-height: 1.45;
+  scrollbar-width: thin;
+}
+
+.board-page.has-side {
+  grid-template-columns: 1fr 300px;
+}
+
+@media (max-width: 640px) {
+  .board-page.has-side {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+}
+
+.board-grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.board-col {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+}
+
+.board-side {
+  border-left: 1px solid var(--board-rule);
+  padding-left: 28px;
+  font-size: 0.86em;
+  color: var(--board-ink-dim);
+}
+
+@media (max-width: 640px) {
+  .board-side {
+    border-left: 0;
+    border-top: 1px solid var(--board-rule);
+    padding-left: 0;
+    padding-top: 20px;
+  }
+}
+
+.board-step + .board-step {
+  margin-top: 4px;
+}
+
+.board-annotations {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.board-pager {
+  position: absolute;
+  right: 16px;
+  bottom: 10px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--board-ink-dim);
+  z-index: 4;
+}
+
+/* --------------------------------------------------------------------------
+ * The write animation
+ * -------------------------------------------------------------------------- */
+
+@keyframes chalk-write-in {
+  from {
+    clip-path: inset(0 100% 0 0);
+    opacity: 0.65;
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+    opacity: 1;
+  }
+}
+
+.chalk-write {
+  animation: chalk-write-in 380ms cubic-bezier(0.22, 0.8, 0.3, 1) both;
+}
+
+/*
+ * Not-yet-written units keep their space so the page does not reflow as a step
+ * reveals. `visibility` rather than `display` for exactly that reason.
+ */
+.chalk-unwritten {
+  visibility: hidden;
+}
+
+/* --------------------------------------------------------------------------
+ * Word ops
+ * -------------------------------------------------------------------------- */
+
+.op {
+  margin-bottom: 14px;
+}
+
+.op-heading h2 {
+  font-size: calc(32px * var(--page-scale));
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.15;
+  color: var(--board-accent-soft);
+  margin-bottom: 4px;
+}
+
+.op-text p {
+  font-size: calc(18px * var(--page-scale));
+  max-width: 62ch;
+}
+
+.op-tone-note p {
+  color: var(--board-ink-dim);
+  font-size: calc(15px * var(--page-scale));
+}
+
+.op-tone-warn p {
+  color: var(--board-warn);
+}
+
+.op-tone-warn p::before {
+  content: '';
+  display: inline-block;
+  width: 3px;
+  height: 1em;
+  margin-right: 10px;
+  vertical-align: -0.15em;
+  background: var(--board-warn);
+}
+
+.key-box {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 16px 20px;
+  background: var(--board-key-bg);
+  border-radius: 4px;
+  border-left: 3px solid var(--board-accent-soft);
+  max-width: 64ch;
+}
+
+.key-box p {
+  font-size: calc(20px * var(--page-scale));
+  font-weight: 600;
+}
+
+.key-flag {
+  display: none;
+}
+
+.op-bullets ul {
+  list-style: none;
+  padding: 0;
+}
+
+.op-bullets li {
+  display: flex;
+  gap: 14px;
+  align-items: baseline;
+  margin-bottom: 8px;
+  max-width: 62ch;
+}
+
+.bullet-mark {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--board-accent-soft);
+  transform: translateY(-2px);
+}
+
+.op-math .tex,
+.op-derive .tex {
+  color: var(--board-ink);
+}
+
+.op-math {
+  margin: 18px 0 20px;
+}
+
+.tex-label,
+.derive-note {
+  font-size: calc(14px * var(--page-scale));
+  color: var(--board-ink-dim);
+  margin-top: 2px;
+}
+
+.derive-line {
+  margin-bottom: 6px;
+  padding-left: 8px;
+  border-left: 1px solid transparent;
+}
+
+.derive-line .katex-display {
+  margin: 0.25em 0;
+  text-align: left;
+}
+
+.derive-note {
+  padding-left: 4px;
+}
+
+.katex-display {
+  margin: 0.4em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 2px;
+}
+
+.tex-fallback {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.9em;
+  color: var(--board-warn);
+  word-break: break-all;
+}
+
+/* --------------------------------------------------------------------------
+ * code
+ * -------------------------------------------------------------------------- */
+
+.op-code {
+  --code-line-h: calc(1.55em);
+}
+
+.code-frame {
+  position: relative;
+  display: flex;
+  gap: 0;
+  background: var(--board-code-bg);
+  border-radius: 6px;
+  padding: 14px 0;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: calc(15px * var(--page-scale));
+  line-height: 1.55;
+  overflow: hidden;
+}
+
+.code-gutter {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  padding: 0 14px 0 16px;
+  text-align: right;
+  color: var(--board-ink-dim);
+  opacity: 0.55;
+  user-select: none;
+}
+
+.code-gutter .focused {
+  opacity: 1;
+  color: var(--board-accent-soft);
+  font-weight: 600;
+}
+
+.code-body {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  padding-right: 16px;
+}
+
+.code-body pre {
+  margin: 0;
+  background: transparent !important;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.code-body code {
+  font-family: inherit;
+}
+
+/* Everything outside the focused range dims, so "look at line four" is shown. */
+.has-focus .code-body pre {
+  opacity: 0.45;
+  transition: opacity 200ms ease;
+}
+
+.code-focus-band {
+  position: absolute;
+  left: -4px;
+  right: 0;
+  border-left: 2px solid var(--board-accent-soft);
+  background: color-mix(in srgb, var(--board-accent-soft) 12%, transparent);
+  pointer-events: none;
+  border-radius: 2px;
+}
+
+.shiki-plain {
+  color: var(--board-ink);
+  white-space: pre;
+}
+
+/* --------------------------------------------------------------------------
+ * diagram
+ * -------------------------------------------------------------------------- */
+
+.diagram-svg {
+  width: 100%;
+  max-width: 760px;
+  height: auto;
+  overflow: visible;
+  font-family: inherit;
+  font-size: 14px;
+}
+
+.diagram-node rect {
+  fill: var(--board-key-bg);
+  stroke: var(--board-ink-dim);
+  stroke-width: 1.4;
+}
+
+.diagram-node text {
+  fill: var(--board-ink);
+  font-size: 14px;
+}
+
+.diagram-node.op-tone-key rect {
+  stroke: var(--board-accent-soft);
+  stroke-width: 2.2;
+}
+
+.diagram-node.op-tone-warn rect {
+  stroke: var(--board-warn);
+}
+
+.diagram-node.op-tone-muted rect {
+  opacity: 0.55;
+}
+
+@keyframes node-appear {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.node-in {
+  animation: node-appear 260ms ease both;
+}
+
+.node-hidden,
+.edge-hidden,
+.plot-hidden,
+.vector-hidden {
+  visibility: hidden;
+}
+
+/* An edge extends from its source to its target rather than appearing whole. */
+@keyframes edge-extend {
+  from {
+    stroke-dashoffset: var(--len, 400);
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.edge-draw path {
+  stroke-dasharray: var(--len, 400);
+  animation: edge-extend 420ms ease-out both;
+}
+
+.edge-label {
+  font-size: 12.5px;
+}
+
+/* --------------------------------------------------------------------------
+ * plot
+ * -------------------------------------------------------------------------- */
+
+.plot-svg {
+  width: 100%;
+  max-width: 700px;
+  height: auto;
+  font-family: inherit;
+}
+
+.plot-svg .grid {
+  stroke: var(--board-rule);
+  stroke-width: 1;
+  opacity: 0.5;
+}
+
+.plot-svg .axis {
+  stroke: var(--board-ink-dim);
+  stroke-width: 1.4;
+}
+
+.plot-svg .tick {
+  fill: var(--board-ink-dim);
+  font-size: 12px;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+.plot-line {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@keyframes plot-draw {
+  from {
+    stroke-dasharray: 2400;
+    stroke-dashoffset: 2400;
+  }
+  to {
+    stroke-dasharray: 2400;
+    stroke-dashoffset: 0;
+  }
+}
+
+.plot-draw {
+  animation: plot-draw 700ms ease-out both;
+}
+
+.plot-mark {
+  fill: var(--board-accent-soft);
+  stroke: var(--board-bg);
+  stroke-width: 2;
+}
+
+.mark-label {
+  fill: var(--board-ink);
+  font-size: 13px;
+}
+
+.mark-in {
+  animation: node-appear 240ms ease both;
+}
+
+.plot-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin-top: 6px;
+  font-size: calc(14px * var(--page-scale));
+  color: var(--board-ink-dim);
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* --------------------------------------------------------------------------
+ * vectors
+ * -------------------------------------------------------------------------- */
+
+.vectors-svg {
+  width: 100%;
+  max-width: 620px;
+  height: auto;
+  font-family: inherit;
+}
+
+.vectors-svg .v-axis {
+  stroke: var(--board-rule);
+  stroke-width: 1;
+}
+
+.vector line {
+  stroke: var(--board-accent-soft);
+}
+
+.vector.op-tone-warn line {
+  stroke: var(--board-warn);
+}
+
+.vector.op-tone-muted line {
+  stroke: var(--board-ink-dim);
+}
+
+.vector-label {
+  fill: var(--board-ink);
+  font-size: 14px;
+}
+
+.v-origin {
+  fill: var(--board-ink);
+}
+
+.v-origin-label {
+  fill: var(--board-ink-dim);
+  font-size: 13px;
+}
+
+@keyframes vector-grow {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.vector-in {
+  transform-origin: center;
+  transform-box: fill-box;
+  animation: vector-grow 300ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+/* --------------------------------------------------------------------------
+ * reaction, table, figure
+ * -------------------------------------------------------------------------- */
+
+.reaction-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: calc(24px * var(--page-scale));
+}
+
+.species {
+  display: inline-flex;
+  align-items: baseline;
+}
+
+.species sub {
+  font-size: 0.66em;
+  vertical-align: -0.25em;
+}
+
+.species sup {
+  font-size: 0.66em;
+}
+
+.species .state {
+  font-size: 0.6em;
+  color: var(--board-ink-dim);
+  margin-left: 2px;
+}
+
+.species .coeff {
+  margin-right: 2px;
+  color: var(--board-accent-soft);
+}
+
+.reaction-row .plus {
+  color: var(--board-ink-dim);
+}
+
+.reaction-row .arrow {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  color: var(--board-ink-dim);
+  margin: 0 6px;
+}
+
+.reaction-row .condition {
+  font-size: 0.5em;
+  margin-bottom: 2px;
+}
+
+.table-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.op-table table {
+  border-collapse: collapse;
+  font-size: calc(16px * var(--page-scale));
+  min-width: min(100%, 380px);
+}
+
+.op-table th,
+.op-table td {
+  text-align: left;
+  padding: 8px 18px 8px 0;
+  border-bottom: 1px solid var(--board-rule);
+  vertical-align: top;
+}
+
+.op-table th {
+  color: var(--board-accent-soft);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.figure-img {
+  max-width: 100%;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.figure-placeholder {
+  padding: 40px;
+  border: 1px dashed var(--board-rule);
+  border-radius: 4px;
+  color: var(--board-ink-dim);
+  text-align: center;
+}
+
+.figure-caption {
+  margin-top: 6px;
+  font-size: calc(14px * var(--page-scale));
+  color: var(--board-ink-dim);
+}
+
+/* --------------------------------------------------------------------------
+ * annotate
+ * -------------------------------------------------------------------------- */
+
+.annotate-layer {
+  position: absolute;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.annotate-stroke {
+  stroke: var(--board-accent-soft);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+}
+
+.annotate-text {
+  fill: var(--board-accent-soft);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+@keyframes annotate-draw {
+  from {
+    stroke-dasharray: 600;
+    stroke-dashoffset: 600;
+  }
+  to {
+    stroke-dasharray: 600;
+    stroke-dashoffset: 0;
+  }
+}
+
+.annotate-draw .annotate-stroke {
+  animation: annotate-draw 520ms ease-out both;
+}
+
+.annotate-hidden {
+  visibility: hidden;
+}
+
+/* --------------------------------------------------------------------------
+ * Reduced motion: reveals become instant, drawing is skipped, narration is
+ * untouched. This is a quality floor, not a feature (§16).
+ * -------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .chalk-write,
+  .node-in,
+  .edge-draw path,
+  .plot-draw,
+  .vector-in,
+  .mark-in,
+  .annotate-draw .annotate-stroke {
+    animation: none !important;
+  }
+}
+
+:root[data-motion='reduced'] .chalk-write,
+:root[data-motion='reduced'] .node-in,
+:root[data-motion='reduced'] .edge-draw path,
+:root[data-motion='reduced'] .plot-draw,
+:root[data-motion='reduced'] .vector-in,
+:root[data-motion='reduced'] .mark-in,
+:root[data-motion='reduced'] .annotate-draw .annotate-stroke {
+  animation: none !important;
+}

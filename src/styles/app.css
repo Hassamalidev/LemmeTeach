@@ -1,0 +1,758 @@
+/*
+ * App chrome (§16).
+ *
+ * The board is the product; this is the thin rail around it. Neutral, quiet,
+ * and deliberately not competing with the board for attention: no gradients,
+ * no card shadows, no hover animations, no staggered entrances. Motion here
+ * only ever confirms an action.
+ */
+
+/*
+ * The two typefaces are declared in public/fonts.css and linked from
+ * index.html rather than imported here. Vite resolves url() in a bundled
+ * stylesheet at build time, which would make the build fail whenever the font
+ * files have not been vendored yet; a public stylesheet is copied verbatim, so
+ * a missing file simply falls through to the next family in the stack.
+ *
+ * Run `npm run vendor:fonts` to fetch them. Nothing is loaded from a
+ * third-party CDN at runtime, ever (§19).
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --chrome: #0e1113;
+  --chrome-raised: #171b1f;
+  --chrome-line: #262c31;
+  --chrome-text: #e7eaec;
+  --chrome-dim: #98a2a9;
+  --accent: #4c6ef5;
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--chrome);
+  color: var(--chrome-text);
+  font-family:
+    'Atkinson Hyperlegible Next', 'Atkinson Hyperlegible', 'Segoe UI', system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Visible keyboard focus everywhere, without exception (§16 quality floor). */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+/* --------------------------------------------------------------------------
+ * Layout
+ * -------------------------------------------------------------------------- */
+
+.app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.screen {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.centered {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 48px 24px 80px;
+}
+
+.wide {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 40px 24px 80px;
+}
+
+h1 {
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  margin-bottom: 8px;
+}
+
+h2 {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+h3 {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+p {
+  margin-bottom: 12px;
+}
+
+.lede {
+  color: var(--chrome-dim);
+  font-size: 17px;
+  margin-bottom: 28px;
+  max-width: 56ch;
+}
+
+.dim {
+  color: var(--chrome-dim);
+}
+
+.small {
+  font-size: 13px;
+}
+
+.mono {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--chrome-line);
+  margin: 28px 0;
+}
+
+/* --------------------------------------------------------------------------
+ * Controls
+ * -------------------------------------------------------------------------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 4px;
+  border: 1px solid var(--chrome-line);
+  background: var(--chrome-raised);
+  font-weight: 600;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: #3a444c;
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+  border-color: var(--accent);
+}
+
+.btn-quiet {
+  background: transparent;
+  border-color: transparent;
+  color: var(--chrome-dim);
+  padding: 8px 12px;
+}
+
+.btn-quiet:hover:not(:disabled) {
+  color: var(--chrome-text);
+  background: var(--chrome-raised);
+}
+
+.btn-danger {
+  border-color: #6b2a2a;
+  color: #ff9d9d;
+}
+
+.field {
+  display: block;
+  margin-bottom: 18px;
+}
+
+.field > span {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.field > .hint {
+  display: block;
+  color: var(--chrome-dim);
+  font-size: 13px;
+  font-weight: 400;
+  margin-top: 6px;
+}
+
+input[type='text'],
+input[type='password'],
+input[type='number'],
+select,
+textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 4px;
+  border: 1px solid var(--chrome-line);
+  background: var(--chrome-raised);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #6b757c;
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.checkbox {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+  cursor: pointer;
+}
+
+.checkbox input {
+  margin-top: 3px;
+  flex: none;
+  width: auto;
+  accent-color: var(--accent);
+}
+
+/* --------------------------------------------------------------------------
+ * Cards and lists
+ * -------------------------------------------------------------------------- */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+}
+
+.card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 18px;
+  border-radius: 6px;
+  border: 1px solid var(--chrome-line);
+  background: var(--chrome-raised);
+  transition: border-color 120ms ease;
+}
+
+.card:hover {
+  border-color: #3a444c;
+}
+
+.card .subject-mark {
+  display: block;
+  width: 26px;
+  height: 3px;
+  border-radius: 2px;
+  margin-bottom: 12px;
+}
+
+.list {
+  border-top: 1px solid var(--chrome-line);
+}
+
+.list-item {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--chrome-line);
+  width: 100%;
+  text-align: left;
+}
+
+.pill {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--chrome-line);
+  font-size: 12px;
+  color: var(--chrome-dim);
+  white-space: nowrap;
+}
+
+.bar {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--chrome-line);
+  overflow: hidden;
+  min-width: 60px;
+}
+
+.bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.notice {
+  padding: 12px 14px;
+  border-radius: 4px;
+  border: 1px solid var(--chrome-line);
+  background: var(--chrome-raised);
+  margin-bottom: 16px;
+}
+
+.notice-error {
+  border-color: #6b2a2a;
+  background: #1d1314;
+}
+
+.notice-warn {
+  border-color: #6b5326;
+}
+
+/* --------------------------------------------------------------------------
+ * The lesson screen
+ * -------------------------------------------------------------------------- */
+
+.lesson {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  height: 100%;
+  min-height: 0;
+}
+
+@media (max-width: 900px) {
+  .lesson {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+}
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 18px;
+  border-right: 1px solid var(--chrome-line);
+  overflow-y: auto;
+  min-height: 0;
+}
+
+@media (max-width: 900px) {
+  .rail {
+    border-right: 0;
+    border-bottom: 1px solid var(--chrome-line);
+    flex-direction: row;
+    align-items: center;
+    gap: 14px;
+    overflow-x: auto;
+    padding: 10px 14px;
+  }
+
+  .rail .rail-section:not(.rail-essential) {
+    display: none;
+  }
+}
+
+.rail-section > h3 {
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--chrome-dim);
+  margin-bottom: 8px;
+}
+
+.objective {
+  display: flex;
+  gap: 9px;
+  align-items: baseline;
+  padding: 5px 0;
+  font-size: 13.5px;
+  color: var(--chrome-dim);
+}
+
+.objective.active {
+  color: var(--chrome-text);
+  font-weight: 600;
+}
+
+.objective .dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--chrome-line);
+  transform: translateY(-2px);
+}
+
+.objective.active .dot {
+  background: var(--accent);
+}
+
+.objective.done .dot {
+  background: #3f9e6a;
+}
+
+.stage {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  position: relative;
+}
+
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 16px;
+  border-bottom: 1px solid var(--chrome-line);
+  font-size: 13.5px;
+  color: var(--chrome-dim);
+  min-height: 40px;
+}
+
+.status-bar .status-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--chrome-text);
+}
+
+.board-frame {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.transport {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--chrome-line);
+  flex-wrap: wrap;
+}
+
+.transport .spacer {
+  flex: 1;
+}
+
+.transport input[type='range'] {
+  width: 92px;
+  accent-color: var(--accent);
+}
+
+.transport select {
+  width: auto;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+/* --------------------------------------------------------------------------
+ * Questions
+ * -------------------------------------------------------------------------- */
+
+.ask-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(6, 9, 10, 0.55);
+  backdrop-filter: blur(2px);
+  z-index: 20;
+}
+
+@media (min-width: 720px) {
+  .ask-overlay {
+    align-items: center;
+  }
+}
+
+.ask-panel {
+  width: 100%;
+  max-width: 620px;
+  max-height: 100%;
+  overflow-y: auto;
+  background: var(--chrome-raised);
+  border: 1px solid var(--chrome-line);
+  border-radius: 8px;
+  padding: 22px;
+}
+
+.ask-panel h2 {
+  font-size: 18px;
+  margin-bottom: 16px;
+}
+
+.option {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  border: 1px solid var(--chrome-line);
+  border-radius: 5px;
+  background: transparent;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.option:hover:not(:disabled) {
+  border-color: #3a444c;
+}
+
+.option.selected {
+  border-color: var(--accent);
+  background: rgba(76, 110, 245, 0.1);
+}
+
+.option.correct {
+  border-color: #3f9e6a;
+  background: rgba(63, 158, 106, 0.12);
+}
+
+.option.wrong {
+  border-color: #a8443f;
+  background: rgba(168, 68, 63, 0.12);
+}
+
+.option .key {
+  flex: none;
+  width: 20px;
+  color: var(--chrome-dim);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+}
+
+.quiz-question + .quiz-question {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--chrome-line);
+}
+
+.why {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-left: 2px solid var(--chrome-line);
+  color: var(--chrome-dim);
+  font-size: 13.5px;
+}
+
+/* --------------------------------------------------------------------------
+ * Transcript and details
+ * -------------------------------------------------------------------------- */
+
+.drawer {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: min(420px, 100%);
+  background: var(--chrome);
+  border-left: 1px solid var(--chrome-line);
+  display: flex;
+  flex-direction: column;
+  z-index: 15;
+}
+
+.drawer header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--chrome-line);
+}
+
+.drawer .body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 16px;
+}
+
+.trace-entry {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--chrome-line);
+  font-size: 12.5px;
+  font-family: 'IBM Plex Mono', monospace;
+  word-break: break-word;
+}
+
+.trace-entry .tag {
+  color: var(--chrome-dim);
+  margin-right: 8px;
+}
+
+.trace-entry.bad .tag {
+  color: #ff9d9d;
+}
+
+.transcript-line {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--chrome-line);
+}
+
+.transcript-line.current {
+  color: var(--chrome-text);
+}
+
+.transcript-line:not(.current) {
+  color: var(--chrome-dim);
+}
+
+/* --------------------------------------------------------------------------
+ * Meter
+ * -------------------------------------------------------------------------- */
+
+.meter {
+  font-size: 12.5px;
+  color: var(--chrome-dim);
+}
+
+.meter .figures {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.meter .bar > span.warn {
+  background: #d9a441;
+}
+
+.meter .bar > span.over {
+  background: #a8443f;
+}
+
+/* --------------------------------------------------------------------------
+ * Notes and review
+ * -------------------------------------------------------------------------- */
+
+.note-block {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--chrome-line);
+}
+
+.note-block pre {
+  white-space: pre-wrap;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+  color: var(--chrome-dim);
+  margin-top: 8px;
+}
+
+.diff-row {
+  display: grid;
+  grid-template-columns: 1fr 90px 60px;
+  gap: 12px;
+  align-items: center;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--chrome-line);
+}
+
+.delta-up {
+  color: #6fbf8f;
+}
+
+.delta-down {
+  color: #d98d8d;
+}
+
+/* --------------------------------------------------------------------------
+ * Keyboard shortcut sheet
+ * -------------------------------------------------------------------------- */
+
+.shortcuts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 16px;
+  font-size: 14px;
+}
+
+kbd {
+  display: inline-block;
+  min-width: 22px;
+  text-align: center;
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--chrome-line);
+  background: var(--chrome-raised);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+}
+
+/* --------------------------------------------------------------------------
+ * Motion, only where it confirms an action
+ * -------------------------------------------------------------------------- */
+
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.ask-panel,
+.drawer {
+  animation: panel-in 160ms ease both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ask-panel,
+  .drawer,
+  .btn:active {
+    animation: none;
+    transform: none;
+  }
+}

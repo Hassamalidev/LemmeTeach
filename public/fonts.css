@@ -1,0 +1,33 @@
+/*
+ * Self-hosted typefaces (§16, §19). No third-party font CDN is used at any
+ * point: these files are fetched once by `npm run vendor:fonts` and served
+ * from the same origin as the app.
+ *
+ * Atkinson Hyperlegible Next was designed for low-vision readability, which is
+ * the right argument for a teaching tool. IBM Plex Mono carries code and data
+ * labels. If a file is missing the browser falls through to the system stack
+ * and the app is merely less distinctive, never broken.
+ */
+@font-face {
+  font-family: 'Atkinson Hyperlegible Next';
+  src: url('./fonts/AtkinsonHyperlegibleNext-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Atkinson Hyperlegible Next';
+  src: url('./fonts/AtkinsonHyperlegibleNext-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'IBM Plex Mono';
+  src: url('./fonts/IBMPlexMono-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}

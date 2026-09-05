@@ -1,0 +1,10 @@
+The typefaces in this directory are vendored so that nothing is
+loaded from a third-party CDN at runtime.
+
+  Atkinson Hyperlegible Next — (c) Braille Institute of America, Inc.
+  IBM Plex Mono — (c) IBM Corp.
+
+Both are licensed under the SIL Open Font License 1.1:
+https://openfontlicense.org/
+
+Refresh them with: npm run vendor:fonts
