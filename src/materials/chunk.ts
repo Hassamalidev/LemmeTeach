@@ -11,6 +11,15 @@
 
 export const TARGET_CHARS = 800;
 export const OVERLAP_CHARS = 100;
+/**
+ * The shortest passage worth indexing.
+ *
+ * Low on purpose. It has to drop running heads and bare page numbers without
+ * dropping content: "F = ma is Newton's second law" is thirty characters and
+ * is exactly the kind of line a learner searches for. Silently discarding a
+ * short page is the worse failure of the two.
+ */
+export const MIN_CHUNK_CHARS = 16;
 
 export interface RawPage {
   page: number;
@@ -43,7 +52,7 @@ export function chunkPages(pages: RawPage[]): Chunk[] {
 
     const flush = (): void => {
       const text = buffer.trim();
-      if (text.length >= 40) chunks.push({ id: id++, page: page.page, text });
+      if (text.length >= MIN_CHUNK_CHARS) chunks.push({ id: id++, page: page.page, text });
       // Carry the tail forward so a boundary never hides a definition.
       buffer = text.length > OVERLAP_CHARS ? `${tailOf(text, OVERLAP_CHARS)} ` : '';
     };
@@ -70,7 +79,7 @@ export function chunkPages(pages: RawPage[]): Chunk[] {
     }
 
     const rest = buffer.trim();
-    if (rest.length >= 40) chunks.push({ id: id++, page: page.page, text: rest });
+    if (rest.length >= MIN_CHUNK_CHARS) chunks.push({ id: id++, page: page.page, text: rest });
   }
 
   return chunks;

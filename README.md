@@ -114,7 +114,7 @@ npm run record -- --subject=physics --topic="Projectile motion"
 
 The suite runs with no API key and no network. The mock adapter replays a lesson through the real runtime, the real tool bus, the real validator and the real page model, which makes it the main test surface rather than a smoke test.
 
-It covers a clean lesson end to end, a failed check triggering remediation, an interruption mid-step, a sandbox timeout, budget exhaustion, an abort mid-turn, and every subject.
+It covers a clean lesson end to end, a failed check triggering remediation, an interruption mid-step, a sandbox timeout, budget exhaustion, an abort mid-turn, every subject, and all five degradation rungs. An axe pass runs over every screen, and one test enforces the layering rule — no provider name in a conditional above the adapter layer — because that is the kind of rule that decays one small exception at a time.
 
 ```bash
 npm test

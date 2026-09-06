@@ -25,6 +25,7 @@ import type { ToolContext } from '../tools/context';
 import type { Budget } from './budget';
 import type { Trace } from './trace';
 import { compact, type CompactContext } from './compact';
+import { parseStreamingStep } from '../providers/partial-json';
 import {
   asChalkError,
   backoffDelay,
@@ -67,6 +68,13 @@ export interface RunContext {
    * rather than letting it burn the learner's budget (§5.5, §17.4).
    */
   onTurnQuality?: (hadValidToolCall: boolean) => void;
+  /**
+   * Called as a teach_step's arguments stream in, with the operations that are
+   * already complete. This is what lets the board start drawing before the
+   * call has finished (§6). Purely an optimization: everything is drawn again
+   * — idempotently, by index — once the validated call arrives.
+   */
+  onStreamingStep?: (say: string | null, ops: unknown[]) => void;
   /** Streaming hooks so the board can draw while arguments are still arriving. */
   onEvent?: (e: AgentEvent) => void;
   onText?: (delta: string) => void;
@@ -260,7 +268,10 @@ async function consumeWithRetry(request: AgentRequest, ctx: RunContext): Promise
 }
 
 export async function consume(request: AgentRequest, ctx: RunContext): Promise<TurnResult> {
-  const calls = new Map<string, { name: string; json: string; input?: unknown }>();
+  const calls = new Map<
+    string,
+    { name: string; json: string; input?: unknown; streamedOps: number }
+  >();
   const order: string[] = [];
   let text = '';
   let usage = { inputTokens: 0, outputTokens: 0 };
@@ -275,12 +286,22 @@ export async function consume(request: AgentRequest, ctx: RunContext): Promise<T
         ctx.onText?.(event.delta);
         break;
       case 'tool_start':
-        calls.set(event.id, { name: event.name, json: '' });
+        calls.set(event.id, { name: event.name, json: '', streamedOps: 0 });
         order.push(event.id);
         break;
       case 'tool_delta': {
         const c = calls.get(event.id);
-        if (c) c.json += event.json;
+        if (!c) break;
+        c.json += event.json;
+        if (c.name === 'teach_step' && ctx.onStreamingStep) {
+          // A tolerant parse failure is not an error here — it simply means
+          // nothing new is drawable yet, and the complete call is moments away.
+          const partial = parseStreamingStep(c.json);
+          if (partial.ops.length > c.streamedOps) {
+            c.streamedOps = partial.ops.length;
+            ctx.onStreamingStep(partial.say, partial.ops);
+          }
+        }
         break;
       }
       case 'tool_end': {
