@@ -202,6 +202,35 @@ describe('when a check goes badly', () => {
       .some((e) => e.t === 'note' && e.message.includes('injected'));
     expect(injected).toBe(true);
   }, 30_000);
+
+  it('still finishes the lesson and reaches review', async () => {
+    // Asserting that REMEDIATING was *entered* is not enough: it also has to
+    // be left again. A lesson that remediates and then never reaches review
+    // leaves the learner on a frozen board with no way forward.
+    const h = makeSession('math');
+    h.autoAnswer('wrong');
+    await h.run();
+
+    expect(h.session.state.phase).toBe('REVIEW');
+    expect(h.session.state.ending, 'the lesson was closed').toBeTruthy();
+  }, 30_000);
+
+  it('stops saying it is backing up once it has moved on', async () => {
+    const h = makeSession('math');
+    h.autoAnswer('wrong');
+    await h.run();
+
+    const phases = h.session.trace
+      .all()
+      .filter((e) => e.t === 'phase')
+      .map((e) => (e.t === 'phase' ? e.to : ''));
+
+    // It went into remediation and came back out to teaching, rather than
+    // wearing the "backing up" status for the rest of the lesson.
+    const remediated = phases.indexOf('REMEDIATING');
+    expect(remediated).toBeGreaterThanOrEqual(0);
+    expect(phases.slice(remediated + 1)).toContain('TEACHING');
+  }, 30_000);
 });
 
 describe('a skipped question', () => {

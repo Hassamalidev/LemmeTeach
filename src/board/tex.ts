@@ -69,3 +69,50 @@ export function texToWords(tex: string): string {
     .replace(/\s+/g, ' ')
     .trim();
 }
+
+/* ------------------------------------------------------------------ *
+ * Inline notation
+ * ------------------------------------------------------------------ */
+
+/**
+ * Does this text want typesetting?
+ *
+ * The board's `math` and `derive` operations are display-level, so until now
+ * there was no way at all to write notation *inside* a line — a table cell, a
+ * bullet, a sentence. Models put LaTeX there anyway, because there is nowhere
+ * else for it to go, and it rendered as raw backslashes on the board.
+ *
+ * Two forms are recognised: an explicit `$…$` span, and a bare TeX command,
+ * which is what a model reaches for unprompted. Deliberately conservative —
+ * "3 + 4 = 7" and "du = dx" are ordinary text and must stay that way.
+ */
+const TEX_COMMAND = /\\[a-zA-Z]{2,}|\\[,;!]|[_^]\{|\^\d/;
+const DOLLAR_SPAN = /\$[^$]+\$/;
+
+export function looksLikeTex(text: string): boolean {
+  return DOLLAR_SPAN.test(text) || TEX_COMMAND.test(text);
+}
+
+/**
+ * Render a line that may mix words and notation, as HTML.
+ *
+ * A `$…$` span is typeset and everything around it is left as text. A line
+ * with no dollars but a bare TeX command is typeset whole, which is what the
+ * model meant by writing it.
+ */
+export function renderInline(text: string): string {
+  if (!looksLikeTex(text)) return escapeHtml(text);
+
+  if (DOLLAR_SPAN.test(text)) {
+    return text
+      .split(/(\$[^$]+\$)/)
+      .map((part) =>
+        part.startsWith('$') && part.endsWith('$') && part.length > 2
+          ? renderTex(part.slice(1, -1), false)
+          : escapeHtml(part),
+      )
+      .join('');
+  }
+
+  return renderTex(text, false);
+}

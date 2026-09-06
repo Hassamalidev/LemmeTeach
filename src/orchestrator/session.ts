@@ -677,6 +677,12 @@ export class Session {
       case 'step_written':
         this.currentStepId = event.stepId;
         this.boardFailures = 0;
+        // The remediation instruction has been given and acted on, so the
+        // lesson is teaching again. Leaving the phase at REMEDIATING would
+        // keep telling the learner it is backing up long after it stopped.
+        if (this.phase === 'REMEDIATING' && this.remediation === null) {
+          this.transition({ t: 'resume' });
+        }
         this.emit();
         break;
 

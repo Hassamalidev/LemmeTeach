@@ -46,7 +46,7 @@ const LEGAL: Record<Phase, Phase[]> = {
   PLANNING: ['TEACHING', 'ABORTED'],
   TEACHING: ['CHECKING', 'INTERRUPTED', 'EXAMINING', 'REVIEW', 'ABORTED'],
   CHECKING: ['TEACHING', 'REMEDIATING', 'EXAMINING', 'ABORTED'],
-  REMEDIATING: ['TEACHING', 'CHECKING', 'ABORTED'],
+  REMEDIATING: ['TEACHING', 'CHECKING', 'EXAMINING', 'REVIEW', 'ABORTED'],
   INTERRUPTED: ['TEACHING', 'ABORTED'],
   EXAMINING: ['CHECKING', 'REVIEW', 'ABORTED'],
   REVIEW: ['IDLE', 'ABORTED'],
@@ -104,6 +104,10 @@ export function nextPhase(
     case 'REMEDIATING':
       if (event.t === 'ask_started') return 'CHECKING';
       if (event.t === 'resume') return 'TEACHING';
+      // A lesson can end while remediating — a check that goes badly near the
+      // end is the ordinary case, not an edge one. Without this the session
+      // has nowhere to go and the learner never reaches their review.
+      if (event.t === 'lesson_ended') return event.runExam ? 'EXAMINING' : 'REVIEW';
       return phase;
 
     case 'INTERRUPTED':

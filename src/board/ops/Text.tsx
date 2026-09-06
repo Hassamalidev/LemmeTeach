@@ -2,7 +2,7 @@
  * heading, text, bullets, math, derive — the five ops that are mostly words.
  */
 import type { BoardOp } from '../op-schema';
-import { renderTex, texToWords } from '../tex';
+import { renderInline, renderTex, texToWords } from '../tex';
 import { Written, shown, toneClass, useRegisterOp, type OpProps } from './common';
 
 type Of<K extends BoardOp['op']> = Extract<BoardOp, { op: K }>;
@@ -26,10 +26,10 @@ export function TextOpView({ op, revealed, register }: OpProps<Of<'text'>>): JSX
         {op.tone === 'key' ? (
           <div className="key-box">
             <span className="key-flag" aria-hidden="true" />
-            <p>{op.text}</p>
+            <p dangerouslySetInnerHTML={{ __html: renderInline(op.text) }} />
           </div>
         ) : (
-          <p>{op.text}</p>
+          <p dangerouslySetInnerHTML={{ __html: renderInline(op.text) }} />
         )}
       </Written>
     </div>
@@ -44,7 +44,7 @@ export function BulletsOpView({ op, revealed, register }: OpProps<Of<'bullets'>>
         {op.items.map((item, i) => (
           <Written as="li" key={i} visible={shown(revealed, i)}>
             <span className="bullet-mark" aria-hidden="true" />
-            <span>{item}</span>
+            <span dangerouslySetInnerHTML={{ __html: renderInline(item) }} />
           </Written>
         ))}
       </ul>

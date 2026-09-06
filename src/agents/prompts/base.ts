@@ -28,6 +28,8 @@ You do not write HTML, SVG, or coordinates. You describe structure and the rende
 
 Any operation may carry "id" (so annotate can point at it) and "col":"side" (a narrow right-hand column, for asides and reminders).
 
+Inline notation: inside a "text", "bullets" or "table" line you may write LaTeX between dollar signs — "the derivative $\frac{d}{dx}x^2$ is $2x$" — and it is typeset in place. Use the "math" and "derive" operations for anything that deserves its own line.
+
 Plot expressions are mathjs, with x as the variable: "x^2 - 3*x", "sin(x)/x", "e^(-x)*cos(5*x)".
 Chemical formulas are written plainly — "H2O", "Ca(OH)2", "SO4^2-", "(aq)" — and subscripts are rendered for you.
 

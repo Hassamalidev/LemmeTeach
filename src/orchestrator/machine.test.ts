@@ -5,7 +5,7 @@
  * reachable from everywhere.
  */
 import { describe, expect, it } from 'vitest';
-import { canTransition, nextPhase, PHASES, type Phase } from './machine';
+import { canTransition, nextPhase, PHASES, type Phase, type PhaseEvent } from './machine';
 
 describe('phase machine', () => {
   it('plans before it teaches', () => {
@@ -56,6 +56,63 @@ describe('phase machine', () => {
   it('ignores events that make no sense in the current phase', () => {
     expect(nextPhase('PLANNING', { t: 'raise_hand' })).toBe('PLANNING');
     expect(nextPhase('REVIEW', { t: 'ask_started' })).toBe('REVIEW');
+  });
+
+  it('lets a lesson end while it is remediating', () => {
+    // A check that goes badly near the end of a lesson is the ordinary case.
+    // Without this the session has nowhere to go and the learner never
+    // reaches their review screen — which is what actually happened.
+    expect(nextPhase('REMEDIATING', { t: 'lesson_ended', runExam: true })).toBe('EXAMINING');
+    expect(nextPhase('REMEDIATING', { t: 'lesson_ended', runExam: false })).toBe('REVIEW');
+  });
+
+  it('can reach an ending from every phase a lesson passes through', () => {
+    // Legal transitions are not enough: a phase can be perfectly well-formed
+    // and still be a dead end. Every phase has to be able to *finish*.
+    const events: PhaseEvent[] = [
+      { t: 'start' },
+      { t: 'planned' },
+      { t: 'ask_started' },
+      { t: 'ask_finished', score: 0.9 },
+      { t: 'ask_finished', score: 0.1 },
+      { t: 'raise_hand' },
+      { t: 'resume' },
+      { t: 'lesson_ended', runExam: true },
+      { t: 'lesson_ended', runExam: false },
+      { t: 'exam_finished' },
+    ];
+
+    const ENDINGS: Phase[] = ['REVIEW', 'ABORTED'];
+
+    for (const start of PHASES) {
+      if (ENDINGS.includes(start)) continue;
+
+      // Breadth-first search over the transition function, ignoring abort —
+      // "you can always press stop" must not be the only way out of a phase.
+      const seen = new Set<Phase>([start]);
+      const queue: Phase[] = [start];
+      let reached = false;
+
+      while (queue.length && !reached) {
+        const phase = queue.shift();
+        if (!phase) break;
+        for (const event of events) {
+          for (const previous of ['TEACHING', 'EXAMINING'] as Phase[]) {
+            const to = nextPhase(phase, event, previous);
+            if (ENDINGS.includes(to)) {
+              reached = true;
+              break;
+            }
+            if (!seen.has(to)) {
+              seen.add(to);
+              queue.push(to);
+            }
+          }
+        }
+      }
+
+      expect(reached, `${start} cannot finish without aborting`).toBe(true);
+    }
   });
 
   it('never produces an illegal transition for any event', () => {

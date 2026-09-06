@@ -9,6 +9,7 @@
 import { useEffect, useState } from 'react';
 import type { BoardOp } from '../op-schema';
 import { Written, shown, useRegisterOp, type OpProps } from './common';
+import { renderInline } from '../tex';
 import { loadFigure } from '../../storage/db';
 
 type ReactionOpType = Extract<BoardOp, { op: 'reaction' }>;
@@ -106,7 +107,7 @@ export function TableOpView({ op, revealed, register }: OpProps<TableOpType>): J
           <thead>
             <tr className={shown(revealed, 0) ? 'chalk-write' : 'chalk-unwritten'}>
               {op.headers.map((h, i) => (
-                <th key={i}>{h}</th>
+                <th key={i} dangerouslySetInnerHTML={{ __html: renderInline(h) }} />
               ))}
             </tr>
           </thead>
@@ -114,7 +115,10 @@ export function TableOpView({ op, revealed, register }: OpProps<TableOpType>): J
             {op.rows.map((row, r) => (
               <tr key={r} className={shown(revealed, r + 1) ? 'chalk-write' : 'chalk-unwritten'}>
                 {row.map((cell, c) => (
-                  <td key={c}>{cell}</td>
+                  // Notation in a data table is normal — "\cos x\,dx" is a
+                  // perfectly reasonable cell, and printing the backslashes
+                  // raw is what the board used to do.
+                  <td key={c} dangerouslySetInnerHTML={{ __html: renderInline(cell) }} />
                 ))}
               </tr>
             ))}
