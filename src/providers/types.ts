@@ -27,8 +27,20 @@ export interface ToolResult {
   content: string;
 }
 
+/**
+ * Something the learner attached to their question: a screenshot, a photo of
+ * a worksheet, a PDF. Sent once, to the agent that reads the question — never
+ * re-sent on every turn, which is what would make it expensive.
+ */
+export interface Attachment {
+  kind: 'image' | 'file';
+  name: string;
+  /** `data:<mime>;base64,…` */
+  dataUrl: string;
+}
+
 export type AgentMessage =
-  | { role: 'user'; content: string }
+  | { role: 'user'; content: string; attachments?: Attachment[] }
   | { role: 'assistant'; content: string; toolCalls: ToolCall[] }
   | { role: 'tool'; results: ToolResult[] };
 
@@ -81,7 +93,15 @@ export type AgentEvent =
   | { t: 'tool_start'; id: string; name: string }
   | { t: 'tool_delta'; id: string; json: string }
   | { t: 'tool_end'; id: string; input: unknown }
-  | { t: 'usage'; inputTokens: number; outputTokens: number }
+  | {
+      t: 'usage';
+      inputTokens: number;
+      outputTokens: number;
+      /** How many of the input tokens were read from the prompt cache. */
+      cachedInputTokens?: number;
+      /** What the gateway says this turn cost, where it reports one. */
+      costUsd?: number;
+    }
   | { t: 'stop'; reason: StopReason }
   | { t: 'error'; error: ChalkError };
 
@@ -96,10 +116,28 @@ export interface ModelInfo {
   tools?: boolean;
 }
 
+/**
+ * Where an OpenAI-compatible service differs from OpenAI itself. Each of these
+ * is a request some service rejects outright, so they are per service rather
+ * than guessed at.
+ */
+export interface AdapterQuirks {
+  /** The service rejects `stream_options`; it reports usage without being asked. */
+  omitStreamOptions?: boolean;
+  /** What the service calls "you must call a tool", where it is not `required`. */
+  requiredToolChoice?: string;
+  /** The service will not accept a user message directly after a tool result. */
+  bridgeUserAfterTool?: boolean;
+}
+
 export interface AdapterConfig {
   apiKey: string;
   /** Only meaningful for the `compatible` adapter. */
   baseUrl?: string;
+  /** Only meaningful for the `compatible` adapter. */
+  quirks?: AdapterQuirks;
+  /** The service's name for error messages, where one adapter serves several. */
+  label?: string;
 }
 
 export interface ProviderAdapter {
@@ -120,9 +158,8 @@ export interface ProviderAdapter {
   /** A note under the model picker, given the number of models on offer. */
   modelNote?: (count: number) => string | null;
   /**
-   * True for a provider that needs no key and no network at all. The Setup
-   * screen uses this to decide whether to ask for a key, rather than naming
-   * the mock adapter.
+   * True for a provider that needs no key and no network at all. Screens use
+   * this to tell the demo apart, rather than naming the mock adapter.
    */
   demo?: boolean;
   /** Shown once the demo provider is chosen, explaining what it does. */
@@ -141,6 +178,6 @@ export interface ProviderAdapter {
 export interface TurnResult {
   text: string;
   toolCalls: ToolCall[];
-  usage: { inputTokens: number; outputTokens: number };
+  usage: { inputTokens: number; outputTokens: number; cachedInputTokens?: number; costUsd?: number };
   stop: StopReason;
 }

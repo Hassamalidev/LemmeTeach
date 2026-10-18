@@ -1,28 +1,35 @@
 /**
  * Settings.
  *
- * Includes the plain answer to the question a careful person will ask about
- * the Anthropic browser header, because "dangerous" in that header's name
- * deserves an explanation rather than a shrug.
+ * A subscriber never picks a provider or types a model id (§5): the only
+ * teaching choice is which tutor tier to use, and it says plainly what that
+ * costs. The rest is the board, the lesson budget, and the plan itself.
  */
 import { useState } from 'react';
-import { adapterFor, PROVIDER_ORDER } from '../providers';
-import type { ProviderId } from '../core/types';
-import { forgetAllKeys, type BoardTheme, type Settings } from '../storage/settings';
+import { formatUsd, type Plan } from '../../shared/plans';
+import { DEEP_COST_MULTIPLE, type Credit, type Quality } from '../providers/managed';
+import { billingPortalUrl } from '../billing/links';
+import type { BoardTheme, Settings } from '../storage/settings';
 
 export function SettingsPanel({
   settings,
+  plan,
+  credit,
   onUpdate,
   onClose,
-  onForgetKey,
+  onSeePlans,
+  onSignOut,
 }: {
   settings: Settings;
+  /** Null in the demo. */
+  plan: Plan | null;
+  credit: Credit | null;
   onUpdate: (patch: Partial<Settings>) => void;
   onClose: () => void;
-  onForgetKey: () => void;
+  onSeePlans: () => void;
+  onSignOut: () => void;
 }): JSX.Element {
-  const [showKeyNote, setShowKeyNote] = useState(false);
-  const adapter = adapterFor(settings.provider);
+  const [showDataNote, setShowDataNote] = useState(false);
 
   return (
     <div className="ask-overlay" role="dialog" aria-modal="true" aria-label="Settings">
@@ -34,57 +41,70 @@ export function SettingsPanel({
           </button>
         </div>
 
-        <label className="field">
-          <span>Provider</span>
-          <select
-            value={settings.provider}
-            onChange={(e) => onUpdate({ provider: e.target.value as ProviderId })}
-          >
-            {PROVIDER_ORDER.map((id) => (
-              <option key={id} value={id}>
-                {adapterFor(id).label}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="field">
-          <span>Model</span>
-          <input
-            type="text"
-            value={settings.model[settings.provider] ?? adapter.defaultModel}
-            onChange={(e) =>
-              onUpdate({ model: { ...settings.model, [settings.provider]: e.target.value } })
-            }
-          />
-          <span className="hint">
-            Planning and the closing check use a fast model, teaching uses the strong one, and
-            repairs use the cheapest. Override any of them below.
-          </span>
-        </label>
-
-        <details style={{ marginBottom: 18 }}>
-          <summary className="dim small" style={{ cursor: 'pointer' }}>
-            Per-role models
-          </summary>
-          <div style={{ marginTop: 10 }}>
-            {(['planner', 'tutor', 'examiner', 'repairer'] as const).map((role) => (
-              <label key={role} className="field" style={{ marginBottom: 10 }}>
-                <span style={{ textTransform: 'capitalize' }}>{role}</span>
-                <input
-                  type="text"
-                  value={settings.roleModels[role] ?? ''}
-                  placeholder="same as above"
-                  onChange={(e) =>
-                    onUpdate({
-                      roleModels: { ...settings.roleModels, [role]: e.target.value || undefined },
-                    })
-                  }
-                />
-              </label>
-            ))}
+        {plan ? (
+          <div className="notice">
+            <strong>{plan.name} plan</strong>
+            <span className="dim">
+              {' '}
+              · {formatUsd(plan.priceUsd)} a month · about {plan.lessons} questions
+            </span>
+            {credit && (
+              <div className="dim small" style={{ marginTop: 4 }}>
+                ${Math.min(credit.remainingUsd, plan.creditUsd).toFixed(2)} of this month’s $
+                {plan.creditUsd.toFixed(2)} lesson credit is left.
+              </div>
+            )}
+            <div className="row" style={{ marginTop: 10 }}>
+              <a
+                className="btn"
+                href={billingPortalUrl()}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Manage subscription
+              </a>
+            </div>
           </div>
-        </details>
+        ) : settings.ownKey ? (
+          <div className="notice">
+            <strong>Using your own {settings.ownKey.label} key.</strong>
+            <div className="dim small" style={{ marginTop: 4 }}>
+              You pay {settings.ownKey.label} directly. Questions are solved on{' '}
+              <span className="mono">{settings.ownKey.models.tutor}</span>.
+            </div>
+            <div className="row" style={{ marginTop: 10 }}>
+              <button className="btn btn-danger" onClick={onSignOut}>
+                Remove my key from this device
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="notice">
+            <strong>You are using the demo.</strong>{' '}
+            <span className="dim">A plan solves your own questions, in any subject.</span>
+            <div className="row" style={{ marginTop: 10 }}>
+              <button className="btn" onClick={onSeePlans}>
+                See plans
+              </button>
+            </div>
+          </div>
+        )}
+
+        {plan && (
+          <label className="field">
+            <span>Tutor</span>
+            <select
+              value={settings.quality}
+              onChange={(e) => onUpdate({ quality: e.target.value as Quality })}
+            >
+              <option value="standard">Standard — right for most lessons</option>
+              <option value="deep">Deeper — for hard derivations and proofs</option>
+            </select>
+            <span className="hint">
+              The deeper tutor uses your questions about {DEEP_COST_MULTIPLE} times as fast.
+            </span>
+          </label>
+        )}
 
         <label className="field">
           <span>Board</span>
@@ -97,39 +117,29 @@ export function SettingsPanel({
           </select>
         </label>
 
-        <label className="field">
-          <span>Token budget per lesson</span>
-          <div className="row" style={{ flexWrap: 'nowrap' }}>
-            <input
-              type="number"
-              min={10_000}
-              step={10_000}
-              value={settings.budget.inputTokens}
-              onChange={(e) =>
-                onUpdate({
-                  budget: { ...settings.budget, inputTokens: Number(e.target.value) },
-                })
-              }
-              aria-label="Input token budget"
-            />
-            <input
-              type="number"
-              min={5_000}
-              step={5_000}
-              value={settings.budget.outputTokens}
-              onChange={(e) =>
-                onUpdate({
-                  budget: { ...settings.budget, outputTokens: Number(e.target.value) },
-                })
-              }
-              aria-label="Output token budget"
-            />
-          </div>
-          <span className="hint">
-            In and out. At 80% the tutor starts wrapping up; at 100% the lesson closes properly
-            rather than stopping mid-sentence.
-          </span>
-        </label>
+        {plan && (
+          <label className="field">
+            <span>Longest solution</span>
+            <select
+              value={String(settings.budget.inputTokens)}
+              onChange={(e) => {
+                const inputTokens = Number(e.target.value);
+                onUpdate({ budget: { inputTokens, outputTokens: inputTokens * 0.15 } });
+              }}
+            >
+              <option value="100000">Short — about six minutes</option>
+              <option value="200000">Normal — about twelve minutes</option>
+              <option value="400000">Long — about twenty-five minutes</option>
+              {![100_000, 200_000, 400_000].includes(settings.budget.inputTokens) && (
+                <option value={String(settings.budget.inputTokens)}>Custom</option>
+              )}
+            </select>
+            <span className="hint">
+              Near the limit the tutor starts wrapping up, so a lesson closes properly rather than
+              stopping mid-sentence. Longer lessons use more of your month.
+            </span>
+          </label>
+        )}
 
         <label className="checkbox">
           <input
@@ -181,32 +191,32 @@ export function SettingsPanel({
         <hr />
 
         <div className="row">
-          <button
-            className="btn btn-danger"
-            onClick={() => {
-              forgetAllKeys();
-              onForgetKey();
-            }}
-          >
-            Forget key
-          </button>
-          <button className="btn-quiet" onClick={() => setShowKeyNote((s) => !s)}>
-            Where does my key go?
+          {plan && (
+            <button className="btn btn-danger" onClick={onSignOut}>
+              Sign out of this device
+            </button>
+          )}
+          <button className="btn-quiet" onClick={() => setShowDataNote((s) => !s)}>
+            Where does my data go?
           </button>
         </div>
 
-        {showKeyNote && (
+        {showDataNote && (
           <div className="notice" style={{ marginTop: 14 }}>
             <p className="small">
-              Your key is stored in this browser and sent directly to {adapter.label}, over HTTPS,
-              from this tab. Chalk has no server, so there is nowhere else it could go. It is
-              never written into a saved lesson, a trace export, or a log.
+              Your progress, notes and uploaded material are stored in this browser and nowhere
+              else. Lessons go from this tab straight to the AI service that runs the model, over
+              HTTPS; they do not pass through LemmeTeach’s servers.
             </p>
-            {adapter.keyNote && (
-              <p className="small" style={{ marginBottom: 0 }}>
-                {adapter.keyNote}
-              </p>
-            )}
+            <p className="small">
+              If you use your own API key, it is stored in this browser and sent only to the
+              provider that issued it. It never reaches LemmeTeach’s servers.
+            </p>
+            <p className="small" style={{ marginBottom: 0 }}>
+              Your license key is stored in this browser and sent only to LemmeTeach, to connect
+              your plan. Signing out removes it from this device and leaves your subscription
+              untouched.
+            </p>
           </div>
         )}
 

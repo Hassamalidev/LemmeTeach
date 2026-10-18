@@ -3,18 +3,18 @@
  *
  * When the conversation approaches the model's window, older turns are
  * replaced by a summary block. The summary is generated *deterministically*
- * from what the runtime already knows — board history and mastery deltas —
+ * from what the runtime already knows — the plan and the board history —
  * rather than by spending a model call on it.
  *
  * That choice is about more than cost. A summarizer call is one more thing
- * that can fail, rate-limit, or hallucinate, in the middle of a lesson, at the
+ * that can fail, rate-limit, or hallucinate, in the middle of a solution, at the
  * exact moment the session is already under pressure.
  */
 import type { AgentMessage } from '../providers/types';
 import { estimateTokens } from './budget';
 
 /** Turns kept verbatim at the end of the window. */
-export const KEEP_RECENT_TURNS = 6;
+export const KEEP_RECENT_TURNS = 4;
 /** Compact once the estimate passes this fraction of the model's window. */
 export const COMPACT_AT = 0.6;
 
@@ -25,8 +25,6 @@ export interface CompactContext {
   planSummary?: string;
   /** What is currently on the board, from BoardModel.historySummary(). */
   boardSummary?: string;
-  /** Concept records touched this session, as "chain-rule: 0.4 → 0.7". */
-  masteryDeltas?: string[];
 }
 
 export function estimateMessagesTokens(messages: AgentMessage[]): number {
@@ -99,7 +97,7 @@ function buildSummary(dropped: AgentMessage[], ctx: CompactContext): string {
 
   const questions = dropped.flatMap((m) =>
     m.role === 'tool'
-      ? m.results.filter((r) => r.name === 'ask_learner' || r.name === 'check_understanding')
+      ? m.results.filter((r) => r.name === 'ask_learner')
       : [],
   );
   if (questions.length) {
@@ -107,10 +105,6 @@ function buildSummary(dropped: AgentMessage[], ctx: CompactContext): string {
     for (const q of questions.slice(-6)) lines.push(`- ${q.content.slice(0, 300)}`);
   }
 
-  if (ctx.masteryDeltas?.length) {
-    lines.push('', 'Mastery recorded so far this lesson:');
-    for (const d of ctx.masteryDeltas) lines.push(`- ${d}`);
-  }
 
   lines.push(
     '',

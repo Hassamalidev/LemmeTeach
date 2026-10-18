@@ -28,6 +28,8 @@
   --chrome-text: #e7eaec;
   --chrome-dim: #98a2a9;
   --accent: #4c6ef5;
+  /* The accent lightened for text: 4.5:1 or better on the chrome. */
+  --accent-soft: #93a8ff;
   color-scheme: dark;
 }
 
@@ -279,7 +281,7 @@ textarea::placeholder {
   width: 100%;
   text-align: left;
   padding: 18px;
-  border-radius: 6px;
+  border-radius: 8px;
   border: 1px solid var(--chrome-line);
   background: var(--chrome-raised);
   transition: border-color 120ms ease;
@@ -358,42 +360,42 @@ textarea::placeholder {
  * -------------------------------------------------------------------------- */
 
 .lesson {
-  display: grid;
-  grid-template-columns: 260px 1fr;
+  display: flex;
+  flex-direction: column;
   height: 100%;
   min-height: 0;
 }
 
-@media (max-width: 900px) {
-  .lesson {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr;
-  }
+.lesson-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  position: relative;
 }
 
+/* The plan and the meter: closed until asked for, so the board has the width. */
 .rail {
+  flex: none;
+  width: 260px;
   display: flex;
   flex-direction: column;
   gap: 18px;
   padding: 18px;
-  border-right: 1px solid var(--chrome-line);
+  border-left: 1px solid var(--chrome-line);
+  background: var(--chrome);
   overflow-y: auto;
   min-height: 0;
 }
 
 @media (max-width: 900px) {
   .rail {
-    border-right: 0;
-    border-bottom: 1px solid var(--chrome-line);
-    flex-direction: row;
-    align-items: center;
-    gap: 14px;
-    overflow-x: auto;
-    padding: 10px 14px;
-  }
-
-  .rail .rail-section:not(.rail-essential) {
-    display: none;
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(300px, 86vw);
+    z-index: 15;
+    box-shadow: -12px 0 28px rgba(0, 0, 0, 0.4);
   }
 }
 
@@ -437,6 +439,8 @@ textarea::placeholder {
 }
 
 .stage {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -446,17 +450,19 @@ textarea::placeholder {
 .status-bar {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 9px 16px;
+  gap: 10px;
+  padding: 4px 12px;
   border-bottom: 1px solid var(--chrome-line);
   font-size: 13.5px;
   color: var(--chrome-dim);
-  min-height: 40px;
+  min-height: 36px;
+  overflow-x: auto;
+  white-space: nowrap;
 }
 
 .status-bar .status-text {
   flex: 1;
-  min-width: 0;
+  min-width: 80px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -469,28 +475,140 @@ textarea::placeholder {
   position: relative;
 }
 
-.transport {
+/* The box under the board: one place to ask from, with the playback controls
+   inside it, so nothing else needs a bar of its own. */
+.dock {
+  flex: none;
+  width: 100%;
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 8px 12px 10px;
+}
+
+.dock-prompt {
+  padding: 2px 4px 8px;
+}
+
+.dock-prompt .row {
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.dock-hint {
+  margin: 0;
+  padding: 0 6px 6px;
+  color: #d9a441;
+}
+
+.composer {
+  border: 1px solid var(--chrome-line);
+  border-radius: 16px;
+  background: var(--chrome-raised);
+  padding: 8px 10px 6px;
+}
+
+.composer:focus-within,
+.composer.engaged {
+  border-color: var(--accent);
+}
+
+.composer textarea {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  resize: none;
+  padding: 4px 6px;
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--chrome-text);
+  box-shadow: none;
+}
+
+.composer textarea:focus,
+.composer textarea:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.composer-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
-  border-top: 1px solid var(--chrome-line);
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.composer-controls,
+.composer-send {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.composer-controls {
   flex-wrap: wrap;
 }
 
-.transport .spacer {
-  flex: 1;
+.icon-btn {
+  flex: none;
+  min-width: 34px;
+  height: 34px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--chrome-dim);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
 }
 
-.transport input[type='range'] {
-  width: 92px;
-  accent-color: var(--accent);
+.icon-btn:hover:not(:disabled) {
+  background: var(--chrome-line);
+  color: var(--chrome-text);
 }
 
-.transport select {
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.icon-btn.on {
+  color: #e5484d;
+}
+
+.icon-btn.send {
+  background: var(--accent);
+  color: #fff;
+  border-radius: 50%;
+  width: 34px;
+  padding: 0;
+  font-weight: 700;
+}
+
+.icon-btn.send:hover:not(:disabled) {
+  background: var(--accent);
+  color: #fff;
+  filter: brightness(1.1);
+}
+
+.composer-select {
   width: auto;
-  padding: 6px 8px;
+  height: 30px;
+  padding: 2px 6px;
   font-size: 13px;
+  border: 0;
+  background: transparent;
+  color: var(--chrome-dim);
+  max-width: 150px;
+}
+
+@media (max-width: 640px) {
+  .composer-voice {
+    display: none;
+  }
 }
 
 /* --------------------------------------------------------------------------
@@ -570,12 +688,6 @@ textarea::placeholder {
   color: var(--chrome-dim);
   font-family: 'IBM Plex Mono', monospace;
   font-size: 13px;
-}
-
-.quiz-question + .quiz-question {
-  margin-top: 22px;
-  padding-top: 18px;
-  border-top: 1px solid var(--chrome-line);
 }
 
 .why {
@@ -688,23 +800,6 @@ textarea::placeholder {
   margin-top: 8px;
 }
 
-.diff-row {
-  display: grid;
-  grid-template-columns: 1fr 90px 60px;
-  gap: 12px;
-  align-items: center;
-  padding: 9px 0;
-  border-bottom: 1px solid var(--chrome-line);
-}
-
-.delta-up {
-  color: #6fbf8f;
-}
-
-.delta-down {
-  color: #d98d8d;
-}
-
 /* --------------------------------------------------------------------------
  * Keyboard shortcut sheet
  * -------------------------------------------------------------------------- */
@@ -726,6 +821,765 @@ kbd {
   background: var(--chrome-raised);
   font-family: 'IBM Plex Mono', monospace;
   font-size: 12px;
+}
+
+/* --------------------------------------------------------------------------
+ * The landing page (§29)
+ *
+ * Same chrome as the app: flat and bordered, with one accent. The board in
+ * the hero is the only thing with a surface of its own, and the only thing
+ * that moves.
+ * -------------------------------------------------------------------------- */
+
+.landing-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: rgba(14, 17, 19, 0.86);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--chrome-line);
+}
+
+.landing-header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 10px 24px;
+}
+
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+/* A stick of chalk, at the angle it is held. */
+.wordmark-mark {
+  width: 16px;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--accent-soft);
+  transform: rotate(-32deg);
+}
+
+.landing .wide {
+  max-width: 1120px;
+}
+
+.eyebrow {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-soft);
+  margin-bottom: 10px;
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  gap: 56px;
+  align-items: center;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 64px 24px 80px;
+}
+
+.hero h1 {
+  font-size: clamp(34px, 5.2vw, 56px);
+  line-height: 1.06;
+  letter-spacing: -0.03em;
+  margin-bottom: 20px;
+}
+
+/* The promise, underlined the way a tutor underlines the point on a board. */
+.hero h1 em {
+  font-style: normal;
+  text-decoration: underline;
+  text-decoration-color: var(--accent);
+  text-decoration-thickness: 0.09em;
+  text-underline-offset: 0.16em;
+}
+
+.hero .lede {
+  font-size: 18px;
+  line-height: 1.55;
+  margin-bottom: 28px;
+}
+
+.assurances {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+  margin: 22px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13.5px;
+  color: var(--chrome-dim);
+}
+
+.assurances li::before {
+  content: '✓';
+  margin-right: 7px;
+  color: #6fbf8f;
+}
+
+.hero-figure {
+  margin: 0;
+  min-width: 0;
+}
+
+.hero-figure figcaption {
+  margin-top: 14px;
+  /* Two lines reserved, so a longer field name never moves the page. */
+  min-height: 3.2em;
+}
+
+.hero-note {
+  display: block;
+  margin-top: 2px;
+}
+
+/* The board is never a rounded card with a drop shadow (§16): a frame, like
+   the wooden edge of a real one. */
+.hero-board {
+  aspect-ratio: 5 / 4;
+  border: 1px solid #2c3a33;
+  outline: 6px solid var(--chrome-raised);
+  overflow: hidden;
+}
+
+.hero-board .board-page {
+  font-size: calc(12.5px * var(--page-scale));
+  gap: 20px;
+  overflow: hidden;
+}
+
+@media (max-width: 900px) {
+  .hero-board .board-page {
+    font-size: calc(15px * var(--page-scale));
+  }
+
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 40px;
+    padding: 36px 24px 56px;
+  }
+}
+
+@media (max-width: 640px) {
+  .hero-board {
+    aspect-ratio: 4 / 5;
+  }
+
+  .landing-header-inner {
+    padding: 8px 16px;
+  }
+
+  .landing-header .btn-quiet {
+    padding: 8px 6px;
+    font-size: 14px;
+  }
+
+  .compare {
+    font-size: 13px;
+  }
+
+  .compare th,
+  .compare td {
+    padding: 10px 8px;
+  }
+}
+
+.band {
+  border-top: 1px solid var(--chrome-line);
+}
+
+.band:focus {
+  outline: none;
+}
+
+.band > .wide {
+  padding-top: 72px;
+  padding-bottom: 72px;
+}
+
+.band h2 {
+  font-size: clamp(24px, 3vw, 32px);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  margin-bottom: 16px;
+  max-width: 24ch;
+}
+
+.aside {
+  margin: 28px 0 0;
+  padding-left: 14px;
+  border-left: 2px solid var(--accent);
+  color: var(--chrome-dim);
+  max-width: 64ch;
+}
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+  margin: 28px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.steps li {
+  padding: 18px;
+  border: 1px solid var(--chrome-line);
+  border-radius: 8px;
+  background: var(--chrome-raised);
+}
+
+.steps p {
+  margin-bottom: 0;
+  font-size: 14px;
+}
+
+.step-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--accent);
+  color: var(--accent-soft);
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+/* ---- comparison ---- */
+
+.compare-scroll {
+  margin-top: 28px;
+  overflow-x: auto;
+  border: 1px solid var(--chrome-line);
+  border-radius: 8px;
+}
+
+.compare {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 14.5px;
+}
+
+.compare th,
+.compare td {
+  padding: 13px 16px;
+  text-align: left;
+  border-bottom: 1px solid var(--chrome-line);
+}
+
+.compare tbody tr:last-child th,
+.compare tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.compare thead td {
+  width: 38%;
+}
+
+.compare thead th {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--chrome-dim);
+}
+
+.compare tbody th {
+  font-weight: 400;
+}
+
+.compare .compare-us {
+  background: rgba(76, 110, 245, 0.1);
+  color: var(--chrome-text);
+  font-weight: 700;
+}
+
+/* ---- subjects ---- */
+
+.subjects {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  margin-top: 28px;
+}
+
+.subject-card {
+  cursor: default;
+  border-radius: 8px;
+}
+
+.subject-card:hover {
+  border-color: var(--chrome-line);
+}
+
+.subject-card h3 {
+  margin-top: 12px;
+}
+
+.subject-card p {
+  margin-bottom: 0;
+}
+
+.subject-glyph {
+  display: block;
+  flex: none;
+}
+
+/* ---- subject explorer ---- */
+
+.explorer {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 16px;
+  margin-top: 28px;
+}
+
+.explorer-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.explorer-tab {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--chrome-dim);
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.explorer-tab:hover {
+  background: var(--chrome-raised);
+  color: var(--chrome-text);
+}
+
+.explorer-tab.active {
+  background: var(--chrome-raised);
+  color: var(--chrome-text);
+}
+
+.explorer-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  gap: 28px;
+  align-items: start;
+  padding: 24px;
+  border: 1px solid var(--chrome-line);
+  border-top-width: 3px;
+  border-radius: 10px;
+  background: var(--chrome-raised);
+}
+
+.explorer-text h3 {
+  font-size: 20px;
+  margin-bottom: 10px;
+}
+
+.explorer-text h4 {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--chrome-dim);
+  margin: 22px 0 10px;
+}
+
+.topic-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.topic-chips .pill {
+  padding: 5px 12px;
+  font-size: 13px;
+  color: var(--chrome-text);
+  white-space: normal;
+}
+
+.topic-chips .pill-open {
+  border-style: dashed;
+  color: var(--chrome-dim);
+}
+
+.explorer-figure {
+  margin: 0;
+  min-width: 0;
+}
+
+.explorer-figure figcaption {
+  margin-top: 10px;
+}
+
+/* Sized by what is written on it, so no board is ever cut off. */
+.explorer-board {
+  border: 1px solid #2c3a33;
+  overflow: hidden;
+}
+
+.explorer-board .board-shell {
+  height: auto;
+  min-height: 300px;
+}
+
+.explorer-board .board-page {
+  font-size: calc(13px * var(--page-scale));
+  gap: 18px;
+  overflow: visible;
+  padding-bottom: 40px;
+}
+
+@media (max-width: 900px) {
+  .explorer {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* The list becomes a row of chips above the panel. */
+  .explorer-tabs {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .explorer-tab {
+    padding: 8px 12px;
+    border-color: var(--chrome-line);
+    font-size: 14px;
+  }
+
+  .explorer-panel {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 18px;
+  }
+
+  .explorer-board .board-page {
+    font-size: calc(14px * var(--page-scale));
+  }
+}
+
+/* ---- plans ---- */
+
+.plans {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 14px;
+  margin-top: 28px;
+}
+
+.plan {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 24px;
+  border: 1px solid var(--chrome-line);
+  border-radius: 10px;
+  background: var(--chrome-raised);
+}
+
+.plan-best {
+  border-color: var(--accent);
+}
+
+.plan h3 {
+  margin-bottom: 0;
+}
+
+.plan p {
+  margin-bottom: 0;
+}
+
+.plan-price {
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  margin-top: 6px;
+}
+
+.plan-price span {
+  font-size: 15px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.plan-lessons {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.plan .btn {
+  align-self: stretch;
+  margin-top: 18px;
+  padding: 12px 18px;
+}
+
+.pill-accent {
+  border-color: var(--accent);
+  color: var(--accent-soft);
+}
+
+a.btn {
+  text-decoration: none;
+}
+
+.btn-lg {
+  padding: 13px 22px;
+  font-size: 16px;
+  border-radius: 6px;
+}
+
+.link {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  padding: 0;
+}
+
+.own-key-offer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding: 20px 24px;
+  border: 1px dashed var(--chrome-line);
+  border-radius: 10px;
+}
+
+.own-key-offer > div {
+  flex: 1;
+  min-width: 240px;
+  max-width: 62ch;
+}
+
+/* ---- questions ---- */
+
+.faq {
+  max-width: 760px;
+  margin-top: 24px;
+  border-top: 1px solid var(--chrome-line);
+}
+
+.faq details {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--chrome-line);
+}
+
+.faq summary {
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.faq details p {
+  margin: 10px 0 0;
+  max-width: 64ch;
+}
+
+.closing {
+  text-align: center;
+}
+
+.closing h2 {
+  max-width: none;
+}
+
+.landing-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.band > .landing-footer {
+  padding-top: 28px;
+  padding-bottom: 28px;
+}
+
+/* --------------------------------------------------------------------------
+ * The solve screen
+ * -------------------------------------------------------------------------- */
+
+.solve h1 {
+  font-size: clamp(28px, 4vw, 40px);
+  letter-spacing: -0.025em;
+}
+
+.ask-box {
+  border: 1px solid var(--chrome-line);
+  border-radius: 10px;
+  background: var(--chrome-raised);
+  margin-bottom: 16px;
+  transition: border-color 120ms ease;
+}
+
+.ask-box:focus-within {
+  border-color: var(--accent);
+}
+
+.ask-box.dragging {
+  border-color: var(--accent);
+  border-style: dashed;
+}
+
+.ask-box textarea {
+  display: block;
+  width: 100%;
+  min-height: 132px;
+  padding: 16px;
+  border: 0;
+  border-radius: 10px 10px 0 0;
+  background: transparent;
+  font-size: 17px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.ask-box textarea:focus-visible {
+  outline: none;
+}
+
+.ask-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px;
+  border-top: 1px solid var(--chrome-line);
+}
+
+.ask-hint {
+  flex: 1;
+  min-width: 160px;
+}
+
+.attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0 12px 12px;
+  list-style: none;
+}
+
+.attachment {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 4px 4px 4px 4px;
+  border: 1px solid var(--chrome-line);
+  border-radius: 6px;
+  background: var(--chrome);
+}
+
+.attachment img,
+.attachment-file {
+  width: 40px;
+  height: 40px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex: none;
+}
+
+.attachment-file {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--chrome-line);
+  font-size: 11px;
+}
+
+.attachment-name {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.example-chip {
+  border-color: var(--chrome-line);
+  padding: 8px 12px;
+  font-size: 14px;
+}
+
+.example-chip.active {
+  border-color: var(--accent);
+}
+
+.voice-picker {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.voice-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 200px;
+  max-width: 340px;
+}
+
+/* --------------------------------------------------------------------------
+ * The plan line
+ * -------------------------------------------------------------------------- */
+
+.plan-line {
+  padding: 14px 16px;
+  border: 1px solid var(--chrome-line);
+  border-radius: 8px;
+  background: var(--chrome-raised);
+  margin-bottom: 24px;
+}
+
+/* The subject picker on Home: the glyph, the name, and where it leads. */
+.subject-pick {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 20px 18px;
+}
+
+.subject-pick .go {
+  margin-left: auto;
+  color: var(--chrome-dim);
+}
+
+.subject-pick:hover .go,
+.subject-pick:focus-visible .go {
+  color: var(--chrome-text);
+}
+
+.plan-line .bar > span.warn {
+  background: #d9a441;
 }
 
 /* --------------------------------------------------------------------------

@@ -167,10 +167,11 @@ is true at the top of every loop iteration, and that sentence is the algorithm.`
     ],
   },
   topics: [
-    { group: 'Algorithms', items: ['Binary search', 'Quicksort', 'Dijkstra’s algorithm', 'Dynamic programming'] },
-    { group: 'Data structures', items: ['Hash tables', 'Binary search trees', 'Heaps', 'Graphs'] },
+    { group: 'Programming fundamentals', items: ['Variables and types', 'Loops and conditions', 'Functions and scope', 'Recursion'] },
+    { group: 'Object-oriented programming', items: ['Classes and objects', 'Inheritance and polymorphism', 'Encapsulation', 'Interfaces and abstraction'] },
+    { group: 'Data structures and algorithms', items: ['Binary search', 'Hash tables', 'Binary search trees', 'Heaps', 'Graphs', 'Quicksort'] },
+    { group: 'Design and analysis of algorithms', items: ['Big O notation', 'Divide and conquer', 'Dynamic programming', 'Greedy algorithms', 'Dijkstra’s algorithm', 'P versus NP'] },
     { group: 'Systems', items: ['How a CPU cache works', 'Processes and threads', 'TCP versus UDP'] },
-    { group: 'Theory', items: ['Big O notation', 'P versus NP', 'Regular expressions and finite automata'] },
   ],
 };
 
@@ -218,12 +219,146 @@ what makes it a process rather than a list.`,
   ],
 };
 
+export const FINANCE: SubjectPack = {
+  id: 'finance',
+  guidance: `FINANCE
+
+Lean on table, plot and math. Money questions are comparisons over time, so
+put the numbers in a table and the growth on a plot rather than describing
+either.
+
+Always work one concrete case with real figures before stating a formula: a
+specific loan, a specific deposit, a specific company. Name the currency and
+the period on every number, the way a physicist names units.
+
+Use compute for every figure you put on the board. A wrong number in a finance
+lesson is worse than no number.
+
+Say what is being assumed — the rate, the compounding period, no fees, no tax —
+and say which assumption matters most. Teach the idea and the calculation; do
+not tell the learner what to buy, sell or invest in.`,
+  example: {
+    say: 'Here is one thousand dollars left alone at seven percent for thirty years. The straight line is what you get if the interest is paid out each year. The curve is what you get if it is left in, and by year thirty it is worth more than twice as much.',
+    board: [
+      {
+        op: 'plot',
+        fns: [
+          { expr: '1000 * 1.07^x', label: 'interest left in' },
+          { expr: '1000 + 70 * x', label: 'interest paid out' },
+        ],
+        domain: [0, 30],
+        id: 'growth',
+      },
+      { op: 'text', text: 'The gap is interest earned on interest.', tone: 'key' },
+    ],
+  },
+  topics: [
+    { group: 'Money over time', items: ['Compound interest', 'Present value', 'Inflation', 'How a loan is repaid'] },
+    { group: 'Investing', items: ['Risk and return', 'Diversification', 'Stocks versus bonds', 'Index funds'] },
+    { group: 'Accounting', items: ['The balance sheet', 'Profit versus cash flow', 'Depreciation'] },
+    { group: 'Economics', items: ['Supply and demand', 'Elasticity', 'Interest rates and central banks', 'Opportunity cost'] },
+  ],
+};
+
+export const PSYCHOLOGY: SubjectPack = {
+  id: 'psychology',
+  guidance: `PSYCHOLOGY
+
+Lean on diagram, table and bullets. Most of the subject is processes and
+comparisons: use a flow diagram for how something unfolds, and a table whenever
+two theories, conditions or groups are set side by side.
+
+Start from a concrete case or a classic study — what was done, to whom, what
+happened — before naming the concept. A learner who can retell the experiment
+can rebuild the theory.
+
+Separate what was observed from how it is explained. Say how strong the
+evidence is, and say so plainly when a famous finding has failed to replicate.
+
+Define every technical term in everyday words the first time it appears. Teach
+the science; do not diagnose the learner or anyone they describe.`,
+  example: {
+    say: 'Follow what happened to the bell. At the start it meant nothing to the dog. It was rung just before the food, again and again, and the food made the dog salivate, as food does. After enough pairings the bell on its own did the same.',
+    board: [
+      {
+        op: 'diagram',
+        layout: 'flow',
+        id: 'pairing',
+        nodes: [
+          { id: 'bell', label: 'Bell' },
+          { id: 'food', label: 'Food' },
+          { id: 'response', label: 'Salivation' },
+        ],
+        edges: [
+          { from: 'bell', to: 'food', label: 'paired, many times' },
+          { from: 'food', to: 'response', label: 'reflex' },
+        ],
+      },
+      { op: 'text', text: 'The bell matters only once it predicts the food.', tone: 'key' },
+    ],
+  },
+  topics: [
+    { group: 'Learning and memory', items: ['Classical conditioning', 'Operant conditioning', 'Working memory', 'Why we forget'] },
+    { group: 'Thinking', items: ['Cognitive biases', 'Heuristics', 'Attention', 'Decision making'] },
+    { group: 'Development and personality', items: ['Piaget’s stages', 'Attachment theory', 'The Big Five traits'] },
+    { group: 'Social and methods', items: ['Conformity', 'The bystander effect', 'Correlation versus causation', 'How an experiment is designed'] },
+  ],
+};
+
+export const GENERAL: SubjectPack = {
+  id: 'general',
+  guidance: `ANY SUBJECT
+
+The learner has named a topic outside the listed subjects. Teach it with the
+same discipline: a concrete case first, then the general idea, then a check.
+
+Choose the representation the topic calls for. A sequence of events or a
+process is a flow diagram. A comparison is a table. A hierarchy is a tree. A
+quantity changing is a plot. An argument is a short list of bullets with the
+conclusion boxed. Do not fall back on walls of text.
+
+Define each technical term in plain words the first time it appears.
+
+The board cannot draw maps, musical notation or pictures. When a topic leans on
+one of those, say so once, describe it in words or as a labelled diagram, and
+carry on. Where the facts are contested or you are unsure, say that rather
+than stating it flatly.`,
+  example: {
+    say: 'Put the three causes side by side and one thing stands out. Each of them had been true for years. What changed in that one summer was that they all pointed the same way at once.',
+    board: [
+      {
+        op: 'table',
+        id: 'causes',
+        headers: ['Cause', 'How long it had been building', 'What it made likely'],
+        rows: [
+          ['Alliances', 'Decades', 'A local war would spread'],
+          ['Arms race', 'About ten years', 'Each side expected to be attacked'],
+          ['The assassination', 'One day', 'A reason to act now'],
+        ],
+      },
+      { op: 'text', text: 'Long causes make an event possible. A short one decides when.', tone: 'key' },
+    ],
+  },
+  topics: [
+    { group: 'History', items: ['Causes of the First World War', 'The Industrial Revolution', 'The fall of Rome'] },
+    { group: 'Geography', items: ['The water cycle', 'Plate tectonics', 'Climate zones'] },
+    { group: 'English', items: ['Active and passive voice', 'Structuring an essay', 'Analysing a poem'] },
+    { group: 'Art', items: ['Colour theory', 'Perspective drawing', 'Composition'] },
+    { group: 'Physical education', items: ['Heart rate training zones', 'How muscles grow', 'Energy systems'] },
+    { group: 'Statistics', items: ['Mean, median and mode', 'Standard deviation', 'What a p-value means'] },
+    { group: 'Business', items: ['A SWOT analysis', 'Marketing funnels', 'Unit economics'] },
+  ],
+};
+
 export const SUBJECT_PACKS: Record<SubjectId, SubjectPack> = {
   math: MATH,
   physics: PHYSICS,
   chemistry: CHEMISTRY,
   cs: CS,
   biology: BIOLOGY,
+  finance: FINANCE,
+  psychology: PSYCHOLOGY,
+  general: GENERAL,
 };
 
 export function packFor(subject: SubjectId): SubjectPack {
@@ -233,9 +368,9 @@ export function packFor(subject: SubjectId): SubjectPack {
 /** The worked example, rendered as the tool call the tutor would make. */
 export function exampleStep(subject: SubjectId): string {
   const pack = packFor(subject);
-  return `A good step in this subject looks like this:\n\n${JSON.stringify(
-    { say: pack.example.say, board: pack.example.board },
-    null,
-    2,
-  )}`;
+  // On one line: indentation is tokens, and this is sent on every turn.
+  return `A good step in this subject looks like this:\n\n${JSON.stringify({
+    say: pack.example.say,
+    board: pack.example.board,
+  })}`;
 }

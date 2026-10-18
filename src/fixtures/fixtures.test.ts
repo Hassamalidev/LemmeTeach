@@ -9,12 +9,14 @@ import { FIXTURE_LESSONS } from './index';
 import { validateOps } from '../board/validate';
 import { BoardModel } from '../board/page';
 import { SUBJECT_IDS } from '../core/types';
-import { CheckUnderstandingInput, PlanLessonInput, TeachStepInput } from '../tools/schemas';
+import { PlanLessonInput, TeachStepInput } from '../tools/schemas';
 
 describe('fixture lessons', () => {
-  it('covers every subject', () => {
-    const subjects = FIXTURE_LESSONS.map((f) => f.meta.subject).sort();
-    expect(subjects).toEqual([...SUBJECT_IDS].sort());
+  it('has one lesson for each subject the demo offers, all of them real subjects', () => {
+    const subjects = FIXTURE_LESSONS.map((f) => f.meta.subject);
+    expect(new Set(subjects).size).toBe(subjects.length);
+    expect(subjects.length).toBeGreaterThanOrEqual(5);
+    for (const s of subjects) expect(SUBJECT_IDS).toContain(s);
   });
 
   for (const lesson of FIXTURE_LESSONS) {
@@ -66,19 +68,6 @@ describe('fixture lessons', () => {
         expect(model.stepCount).toBeGreaterThan(3);
       });
 
-      it('has checks that pass check_understanding validation', () => {
-        for (const line of lesson.lines) {
-          if (line.t !== 'check') continue;
-          const parsed = CheckUnderstandingInput.safeParse({ questions: line.questions });
-          if (!parsed.success) {
-            throw new Error(
-              parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '),
-            );
-          }
-          expect(line.answers).toHaveLength(line.questions.length);
-        }
-      });
-
       it('narrates in spoken language, with no markup or notation', () => {
         for (const line of lesson.lines) {
           if (line.t !== 'step') continue;
@@ -89,16 +78,14 @@ describe('fixture lessons', () => {
         }
       });
 
-      it('asks the learner something before the fourth step', () => {
-        let steps = 0;
+      it('never puts a question to the learner, since they cannot answer one', () => {
         for (const line of lesson.lines) {
-          if (line.t === 'step') steps++;
-          if (line.t === 'ask' || line.t === 'check') break;
+          if (line.t !== 'step') continue;
+          expect(line.say, line.say).not.toMatch(/what do you think|can you tell me|your turn/i);
         }
-        expect(steps, 'first check comes no later than step 3').toBeLessThanOrEqual(3);
       });
 
-      it('ends the lesson', () => {
+      it('ends properly', () => {
         expect(lesson.lines.at(-1)?.t).toBe('end');
       });
     });

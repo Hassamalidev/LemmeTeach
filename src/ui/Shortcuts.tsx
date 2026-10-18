@@ -5,10 +5,10 @@ const KEYS: [string, string][] = [
   ['Space', 'Pause or resume'],
   ['←  →', 'Previous or next step'],
   ['R', 'Replay this step'],
-  ['H', 'Raise your hand'],
+  ['H', 'Stop and ask a question'],
   ['M', 'Mute or unmute the voice'],
   ['?', 'This list'],
-  ['Esc', 'Stop the lesson'],
+  ['Esc', 'Stop altogether'],
 ];
 
 export function Shortcuts({ onClose }: { onClose: () => void }): JSX.Element {

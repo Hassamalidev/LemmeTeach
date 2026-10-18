@@ -13,15 +13,13 @@ import { truncateResult } from './index';
 
 export const runCode: Tool = {
   name: 'run_code',
-  description: `Run a short program and get back what it printed, returned, or drew. Use it when a computed result teaches something an assertion cannot: integrate a trajectory, sort a real list and show the passes, verify a stoichiometry, sample a distribution, or draw a graph from data rather than by hand.
+  description: `Run a short program and get back what it printed, returned or drew. Use it when a computed result shows something an assertion cannot: a simulation, a sorted list, a graph from data. For one-line arithmetic use compute instead. Narrate the result, not the code.
 
-Do not use it for arithmetic a person does in their head — use compute for that. Do not narrate the code; narrate the result. And trace a small input by hand on the board before you run it, so the code confirms an idea the learner already has rather than replacing it.
+JavaScript starts instantly. Python takes about five seconds the first time, so use it only for numpy, sympy, scipy, matplotlib or pandas (those five and nothing else).
 
-JavaScript starts instantly. Python takes about five seconds the first time while the runtime loads, so choose it only when you need numpy, sympy, scipy, matplotlib or pandas — those five are available, nothing else is.
+For a graph, draw with matplotlib and place the returned figure id with a board "figure" operation on your next teach_step. No savefig or show.
 
-To put a graph on the board, draw it with matplotlib and then place the returned figure id with a board "figure" operation on your next teach_step. There is no need to call savefig or show.
-
-If it errors, the exception comes back to you. Fix it and try again, at most twice; after that, teach the point without it.`,
+On an error you get the exception back: fix it and retry, twice at most, then carry on without it.`,
   schema: RunCodeInput,
   agents: ['tutor'],
   parallelSafe: false,

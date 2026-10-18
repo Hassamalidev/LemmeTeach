@@ -18,7 +18,8 @@
 import type { ZodTypeAny } from 'zod';
 import type { AgentId } from '../core/types';
 import type { ToolCall, ToolResult, ToolSpec } from '../providers/types';
-import { toJsonSchema } from './json-schema';
+import { minifySchema, toJsonSchema } from './json-schema';
+import type { JsonSchema } from '../providers/types';
 import type { ToolContext } from './context';
 import { asChalkError } from '../runtime/errors';
 import { now } from '../core/types';
@@ -32,6 +33,11 @@ export interface ToolOutcome {
 }
 
 export interface Tool {
+  /**
+   * Reshapes the generated schema before it is sent. Used where a schema
+   * repeats something the system prompt already says in fewer tokens.
+   */
+  wire?: (schema: JsonSchema) => JsonSchema;
   name: string;
   description: string;
   schema: ZodTypeAny;
@@ -42,6 +48,8 @@ export interface Tool {
 }
 
 /** Terminal tools end their agent's loop when they succeed (§7). */
+const keep = (schema: JsonSchema): JsonSchema => schema;
+
 export const TERMINAL_TOOLS = new Set(['plan_lesson', 'end_lesson', 'finish_exam', 'fix_board']);
 
 /** Results over this many bytes are truncated; every one is re-sent each turn. */
@@ -59,6 +67,10 @@ export class ToolBus {
   }
 
   /** The specs sent to the provider for one agent, generated from Zod (§9). */
+  /**
+   * The tool definitions sent to the model. Generated from the Zod schemas so
+   * the two cannot drift, then cut down to what the model needs to read (§18).
+   */
   specsFor(agent: AgentId, exclude: ReadonlySet<string> = new Set()): ToolSpec[] {
     const out: ToolSpec[] = [];
     for (const t of this.tools.values()) {
@@ -66,7 +78,7 @@ export class ToolBus {
       out.push({
         name: t.name,
         description: t.description,
-        parameters: toJsonSchema(t.schema),
+        parameters: minifySchema((t.wire ?? keep)(toJsonSchema(t.schema))),
       });
     }
     return out;

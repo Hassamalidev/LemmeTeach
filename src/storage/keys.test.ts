@@ -7,7 +7,17 @@
  * money.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { forgetAllKeys, getKey, loadSettings, saveSettings, scrubKeys, setKey } from './settings';
+import {
+  forgetAllKeys,
+  forgetLicense,
+  getKey,
+  getLicense,
+  loadSettings,
+  saveSettings,
+  scrubKeys,
+  setKey,
+  setLicense,
+} from './settings';
 import { Trace } from '../runtime/trace';
 import { errorFromResponse, errorFromFetchFailure } from '../runtime/errors';
 import { toAnthropicMessages, toOpenAiMessages, toGeminiContents } from '../providers/normalize';
@@ -45,6 +55,33 @@ describe('storage', () => {
     setKey('openai', 'sk-memory-only-secret-value-here', false);
     expect(getKey('openai')).toBe('sk-memory-only-secret-value-here');
     expect(JSON.stringify(localStorage)).not.toContain('sk-memory-only-secret-value-here');
+  });
+});
+
+describe('the license key', () => {
+  const LICENSE = '38B1460A-5104-4067-A91D-77B872934D51';
+
+  beforeEach(() => {
+    setLicense({ licenseKey: LICENSE, planId: 'starter', activatedAt: 1 });
+  });
+
+  it('is stored apart from the settings blob', () => {
+    saveSettings(loadSettings());
+    expect(localStorage.getItem('chalk.settings') ?? '').not.toContain(LICENSE);
+    expect(getLicense()?.planId).toBe('starter');
+  });
+
+  it('is scrubbed from anything that leaves the app', () => {
+    const trace = new Trace();
+    trace.push({ t: 'note', message: `activating ${LICENSE}` });
+    expect(trace.toExport({ provider: 'openrouter' })).not.toContain(LICENSE);
+    expect(scrubKeys(`license ${LICENSE}`)).toBe('license [key removed]');
+  });
+
+  it('is gone after signing out', () => {
+    forgetLicense();
+    expect(getLicense()).toBeNull();
+    expect(JSON.stringify(localStorage)).not.toContain(LICENSE);
   });
 });
 

@@ -4,52 +4,47 @@
  * The orchestrator is a finite state machine, not another model. Model
  * autonomy lives *inside* a phase; the transitions between phases are code.
  *
- * That split is the whole design. Asking a model to decide when it should stop
- * teaching and start examining, or whether a 35% score means "back up", puts a
- * decision with real cost and real pedagogical consequence somewhere it cannot
- * be tested. Here, it is a function with a truth table.
+ * That split is the whole design. Whether the question has been read, whether
+ * the learner has interrupted, whether the solution is finished — each is a
+ * decision with real cost, and here each is a function with a truth table
+ * rather than something a model is asked to judge.
  */
 
 export const PHASES = [
   'IDLE',
+  /** The reader is reading the question and planning the solution. */
   'PLANNING',
+  /** The solver is working it through on the board. */
   'TEACHING',
+  /** Waiting on the learner to clarify a question that could not be read. */
   'CHECKING',
-  'REMEDIATING',
+  /** The learner raised a hand. */
   'INTERRUPTED',
-  'EXAMINING',
+  /** Finished: the summary and the worked solution. No model calls. */
   'REVIEW',
   'ABORTED',
 ] as const;
 
 export type Phase = (typeof PHASES)[number];
 
-/** Score below which the runtime forces remediation, from §8.3. */
-export const REMEDIATION_THRESHOLD = 0.8;
-/** Below this, back up to the prerequisite rather than re-explaining. */
-export const PREREQUISITE_THRESHOLD = 0.4;
-
 export type PhaseEvent =
   | { t: 'start' }
   | { t: 'planned' }
   | { t: 'ask_started' }
-  | { t: 'ask_finished'; score?: number }
+  | { t: 'ask_finished' }
   | { t: 'raise_hand' }
   | { t: 'resume' }
-  | { t: 'lesson_ended'; runExam: boolean }
-  | { t: 'exam_finished' }
+  | { t: 'solved' }
   | { t: 'abort' }
   | { t: 'reset' };
 
 const LEGAL: Record<Phase, Phase[]> = {
   IDLE: ['PLANNING', 'ABORTED'],
-  PLANNING: ['TEACHING', 'ABORTED'],
-  TEACHING: ['CHECKING', 'INTERRUPTED', 'EXAMINING', 'REVIEW', 'ABORTED'],
-  CHECKING: ['TEACHING', 'REMEDIATING', 'EXAMINING', 'ABORTED'],
-  REMEDIATING: ['TEACHING', 'CHECKING', 'EXAMINING', 'REVIEW', 'ABORTED'],
+  PLANNING: ['TEACHING', 'CHECKING', 'ABORTED'],
+  TEACHING: ['INTERRUPTED', 'REVIEW', 'ABORTED'],
+  CHECKING: ['PLANNING', 'ABORTED'],
   INTERRUPTED: ['TEACHING', 'ABORTED'],
-  EXAMINING: ['CHECKING', 'REVIEW', 'ABORTED'],
-  REVIEW: ['IDLE', 'ABORTED'],
+  REVIEW: ['IDLE', 'INTERRUPTED', 'ABORTED'],
   ABORTED: ['IDLE'],
 };
 
@@ -58,14 +53,14 @@ export function canTransition(from: Phase, to: Phase): boolean {
 }
 
 /**
- * The transition function. `previous` is where CHECKING should return to,
- * since a check can be raised from teaching or from examining and the answer
- * has to go back where it came from.
+ * The transition function. `previous` is where CHECKING returns to. Today
+ * that is always PLANNING, because only the reader may ask; it is a parameter
+ * so the answer goes back where the question came from if that ever changes.
  */
 export function nextPhase(
   phase: Phase,
   event: PhaseEvent,
-  previous: Phase = 'TEACHING',
+  previous: Phase = 'PLANNING',
 ): Phase {
   // Abort is always reachable, from anywhere, at any time (§3).
   if (event.t === 'abort') return 'ABORTED';
@@ -83,43 +78,26 @@ export function nextPhase(
       return event.t === 'start' ? 'PLANNING' : phase;
 
     case 'PLANNING':
+      // A question too unclear to solve is clarified here, before any of the
+      // learner's credit is spent solving the wrong thing.
+      if (event.t === 'ask_started') return 'CHECKING';
       return event.t === 'planned' ? 'TEACHING' : phase;
 
     case 'TEACHING':
-      if (event.t === 'ask_started') return 'CHECKING';
       if (event.t === 'raise_hand') return 'INTERRUPTED';
-      if (event.t === 'lesson_ended') return event.runExam ? 'EXAMINING' : 'REVIEW';
+      if (event.t === 'solved') return 'REVIEW';
       return phase;
 
-    case 'CHECKING': {
+    case 'CHECKING':
       if (event.t !== 'ask_finished') return phase;
-      // The branch is decided here, in code, not by the model's judgement.
-      if (previous === 'EXAMINING') return 'EXAMINING';
-      if (typeof event.score === 'number' && event.score < REMEDIATION_THRESHOLD) {
-        return 'REMEDIATING';
-      }
-      return 'TEACHING';
-    }
-
-    case 'REMEDIATING':
-      if (event.t === 'ask_started') return 'CHECKING';
-      if (event.t === 'resume') return 'TEACHING';
-      // A lesson can end while remediating — a check that goes badly near the
-      // end is the ordinary case, not an edge one. Without this the session
-      // has nowhere to go and the learner never reaches their review.
-      if (event.t === 'lesson_ended') return event.runExam ? 'EXAMINING' : 'REVIEW';
-      return phase;
+      return canTransition('CHECKING', previous) ? previous : 'PLANNING';
 
     case 'INTERRUPTED':
       return event.t === 'resume' ? 'TEACHING' : phase;
 
-    case 'EXAMINING':
-      if (event.t === 'ask_started') return 'CHECKING';
-      if (event.t === 'exam_finished') return 'REVIEW';
-      return phase;
-
     case 'REVIEW':
-      return phase;
+      // The solution is finished, but the learner can still ask about it.
+      return event.t === 'raise_hand' ? 'INTERRUPTED' : phase;
 
     case 'ABORTED':
       return phase;
@@ -129,17 +107,15 @@ export function nextPhase(
 /** What the learner is told is happening. Plain language, always accurate. */
 export const PHASE_LABELS: Record<Phase, string> = {
   IDLE: 'Ready',
-  PLANNING: 'Planning the lesson',
-  TEACHING: 'Teaching',
-  CHECKING: 'Waiting for your answer',
-  REMEDIATING: 'Backing up to fill a gap',
+  PLANNING: 'Reading your question',
+  TEACHING: 'Solving it on the board',
+  CHECKING: 'Waiting for you: part of the question was unclear',
   INTERRUPTED: 'Listening to your question',
-  EXAMINING: 'A short check',
-  REVIEW: 'Wrapping up',
+  REVIEW: 'Done',
   ABORTED: 'Stopped',
 };
 
 /** True while a model call may be in flight — used to gate the transport UI. */
 export function isRunning(phase: Phase): boolean {
-  return phase === 'PLANNING' || phase === 'TEACHING' || phase === 'REMEDIATING' || phase === 'EXAMINING';
+  return phase === 'PLANNING' || phase === 'TEACHING';
 }

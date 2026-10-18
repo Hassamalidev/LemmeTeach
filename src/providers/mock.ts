@@ -2,16 +2,16 @@
  * The mock adapter (§5.6).
  *
  * Emits the same `AgentEvent` sequence a real provider would, with realistic
- * timing, so the whole product — board, voice, sandbox, memory, interruption,
- * remediation — is exercisable with no key and no network. This is the main
+ * timing, so the whole product — board, voice, sandbox, pacing, interruption — is
+ * exercisable with no key and no network. This is the main
  * test surface (§22) and the demo on the landing page.
  *
  * Two sources, in order of preference:
  *
  *  1. A **recorded tape** in `src/fixtures/tapes/`, captured from a real
- *     session by `npm run record`. Tapes are the real thing and are what the
- *     integration tests should run against.
- *  2. Failing that, a **fixture lesson** replayed as if a model had produced
+ *     session. None are bundled yet; when they are, they are the real thing
+ *     and are what the integration tests should run against.
+ *  2. Failing that, a **prepared walkthrough** replayed as if a model had produced
  *     it. This is authored content, not a recording, and it is labelled as
  *     such wherever it surfaces — it exists so the UI can be developed and
  *     demonstrated before anyone has spent a token, not to stand in for
@@ -47,10 +47,10 @@ export const mock: ProviderAdapter = {
   defaultModel: 'mock-replay',
   keyPlaceholder: 'no key needed',
   keyHelpUrl: '',
-  keyHint: 'Replays a bundled lesson. Nothing leaves your browser and nothing is charged.',
+  keyHint: 'Replays a prepared walkthrough. Nothing leaves your browser and nothing is charged.',
   demo: true,
   demoNote:
-    'Replay mode plays a bundled lesson with no key and no network. Everything works — the board, the voice, the questions, the notes — except that the tutor cannot respond to anything you have not been shown.',
+    'The demo plays a prepared walkthrough with no key and no network. The board, the voice and the controls are the real ones; only the question is fixed.',
   supportsToolChoice: true,
   supportsParallelToolCalls: false,
   keyOptional: true,
@@ -137,12 +137,7 @@ async function* replayFixture(
     }
   }
 
-  if (role === 'examiner') {
-    yield* emitExam(lesson, turn, signal);
-    return;
-  }
-
-  // Tutor: walk the teaching lines one per turn, exactly as a tutor would.
+  // Solver: walk the walkthrough's lines one per turn, as a solver would.
   //
   // Lines whose tool was not offered this session are dropped rather than
   // replayed — a real model does not call a tool it was never given, and a
@@ -152,10 +147,6 @@ async function* replayFixture(
     switch (l.t) {
       case 'step':
         return offered.has('teach_step');
-      case 'ask':
-        return offered.has('ask_learner');
-      case 'check':
-        return offered.has('check_understanding');
       case 'code':
         return offered.has('run_code');
       case 'end':
@@ -168,11 +159,10 @@ async function* replayFixture(
 
   if (!line) {
     yield* emitCall('end_lesson', {
-      summary: 'That is where we will stop for today.',
+      summary: 'That is the end of this walkthrough.',
       objectivesMet: [],
       objectivesMissed: [],
       nextTopics: [],
-      runExam: false,
     }, signal);
     yield { t: 'usage', inputTokens: 1200, outputTokens: 120 };
     yield { t: 'stop', reason: 'tool_use' };
@@ -186,16 +176,6 @@ async function* replayFixture(
         { say: line.say, board: line.board, clear: line.clear ?? false, objective: line.objective },
         signal,
       );
-      break;
-    case 'ask':
-      yield* emitCall(
-        'ask_learner',
-        { question: line.question, kind: line.kind, options: line.options, why: line.why },
-        signal,
-      );
-      break;
-    case 'check':
-      yield* emitCall('check_understanding', { questions: line.questions }, signal);
       break;
     case 'code':
       yield* emitCall(
@@ -215,7 +195,6 @@ async function* replayFixture(
         objectivesMet: line.objectivesMet,
         objectivesMissed: line.objectivesMissed,
         nextTopics: line.nextTopics,
-        runExam: line.runExam,
       }, signal);
       break;
     default:
@@ -223,33 +202,6 @@ async function* replayFixture(
   }
 
   yield { t: 'usage', inputTokens: 1400 + turn * 700, outputTokens: 480 };
-  yield { t: 'stop', reason: 'tool_use' };
-}
-
-async function* emitExam(
-  lesson: FixtureLesson,
-  turn: number,
-  signal: AbortSignal,
-): AsyncGenerator<AgentEvent> {
-  const checks = lesson.lines.filter((l): l is Extract<FixtureLine, { t: 'check' }> => l.t === 'check');
-  const questions = checks.flatMap((c) => c.questions).slice(0, 5);
-
-  if (turn === 0 && questions.length >= 2) {
-    yield* emitCall('check_understanding', { questions: questions.slice(0, 4) }, signal);
-  } else {
-    yield* emitCall(
-      'finish_exam',
-      {
-        score: 0.8,
-        strengths: ['Held on to the main idea and could restate it'],
-        gaps: ['Still hesitant when the setup is unfamiliar'],
-        verdict: 'Ready to move on, with one more pass over the tricky case.',
-      },
-      signal,
-    );
-  }
-
-  yield { t: 'usage', inputTokens: 2200, outputTokens: 300 };
   yield { t: 'stop', reason: 'tool_use' };
 }
 
@@ -283,10 +235,9 @@ async function* emitCall(
  * ------------------------------------------------------------------ */
 
 /** Which agent is calling, inferred from the tools it was given — never a flag. */
-function roleOf(req: AgentRequest): 'planner' | 'tutor' | 'examiner' | 'repairer' {
+function roleOf(req: AgentRequest): 'planner' | 'tutor' | 'repairer' {
   const names = new Set(req.tools.map((t) => t.name));
   if (names.has('plan_lesson')) return 'planner';
-  if (names.has('finish_exam')) return 'examiner';
   if (names.has('fix_board')) return 'repairer';
   return 'tutor';
 }

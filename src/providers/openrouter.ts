@@ -9,6 +9,7 @@
  */
 import type { AdapterConfig, ModelInfo, ProviderAdapter } from './types';
 import { createOpenAiLike } from './openai';
+import { fallbackFor } from './managed';
 
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
 
@@ -45,7 +46,7 @@ async function openRouterModels(): Promise<ModelInfo[]> {
 }
 
 const OPENROUTER_FALLBACK: ModelInfo[] = [
-  { id: 'anthropic/claude-sonnet-5', label: 'Claude Sonnet 5', tools: true },
+  { id: 'anthropic/claude-haiku-5.5', label: 'Claude Haiku 5.5', tools: true },
   { id: 'openai/gpt-4.1', label: 'GPT-4.1', tools: true },
   { id: 'google/gemini-2.0-flash-001', label: 'Gemini 2.0 Flash', tools: true },
 ];
@@ -54,17 +55,31 @@ export const openrouter: ProviderAdapter = createOpenAiLike({
   id: 'openrouter',
   label: 'OpenRouter',
   baseUrl: OPENROUTER_BASE,
-  defaultModel: 'anthropic/claude-sonnet-5',
+  defaultModel: 'anthropic/claude-haiku-5.5',
   keyPlaceholder: 'sk-or-v1-…',
   keyHelpUrl: 'https://openrouter.ai/keys',
   keyHint: 'Create a key at openrouter.ai under Keys. One key reaches most models.',
   modelNote: (count) =>
     `${count} models that support tool calls. The rest are hidden because they cannot run a lesson.`,
   extraHeaders: {
-    // OpenRouter asks apps to identify themselves. Neither header carries
-    // anything about the learner.
-    'HTTP-Referer': 'https://github.com/chalk-tutor/chalk',
-    'X-Title': 'Chalk',
+    // OpenRouter asks apps to identify themselves. This carries nothing about
+    // the learner; the browser supplies the referring origin itself.
+    'X-Title': 'LemmeTeach',
+  },
+  // The three things that make a subscriber's credit go further (§18):
+  extraBody: (model) => {
+    const fallback = fallbackFor(model);
+    return {
+      // 1. Prompt caching. The system prompt and tool definitions are most of
+      //    every turn and identical across a lesson; cached, they are read
+      //    back at a tenth of the price. Anthropic models need asking; the
+      //    others cache on their own and ignore this.
+      cache_control: { type: 'ephemeral' },
+      // 2. The real cost of each turn, so the meter is not an estimate.
+      usage: { include: true },
+      // 3. A same-priced second model if the first is unavailable.
+      ...(fallback ? { models: [model, fallback] } : {}),
+    };
   },
   models: openRouterModels,
 });

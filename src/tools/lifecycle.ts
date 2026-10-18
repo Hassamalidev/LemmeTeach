@@ -1,5 +1,5 @@
 /**
- * The terminal tools (§9.12–§9.15).
+ * The terminal tools (§9.8–§9.9, §9.1).
  *
  * Each one ends its agent's loop when it succeeds. The runtime enforces that —
  * `TERMINAL_TOOLS` in the bus — rather than the agent deciding when it is
@@ -8,30 +8,29 @@
  */
 import { uid } from '../core/types';
 import { validateOps } from '../board/validate';
+import { BOARD_OPS_WIRE } from '../board/op-schema';
 import type { Tool, ToolOutcome } from './index';
 import type { ToolContext } from './context';
 import {
   EndLessonInput,
-  FinishExamInput,
   FixBoardInput,
   PlanLessonInput,
   type EndLessonIn,
-  type FinishExamIn,
   type FixBoardIn,
   type PlanLessonIn,
 } from './schemas';
 
 export const planLesson: Tool = {
   name: 'plan_lesson',
-  description: `Commit the lesson plan. This ends your turn as planner — the tutor takes it from here, so everything it needs must be in this call.
+  description: `Commit your reading of the question and the plan for solving it. This ends your turn — the solver takes it from here and sees only what is in this call, never the learner's attachments.
 
-Objectives are written as "the learner can …" and must be checkable. "The learner understands integration by parts" is not an objective, because nothing you could observe would settle whether it is true; "the learner can choose u and dv sensibly for a product of a polynomial and a trig function" is.
+problem: the question restated in full. Every number, unit, symbol and condition; exactly what is asked; and a description of any figure precise enough to redraw. If there are several questions, all of them, numbered.
 
-Prerequisites: say for each whether the record shows they hold it. If something load-bearing is missing, set recap true and budget a step for it rather than hoping.
+objectives: the stages of the solution, in order — "Find the time in the air", "Find the range".
 
-Steps: five to nine, each naming the representation it uses. Vary them — a lesson that is nine derivations in a row is a textbook, not a lesson. Put the first check no later than step three.
+steps: one per board step, three to nine. Open with what is given and what is asked. Draw the situation early if it can be drawn. Close with the answer and a check that it is sensible.
 
-Estimate the minutes honestly. Learners plan their evening around it.`,
+Estimate the minutes honestly.`,
   schema: PlanLessonInput,
   agents: ['planner'],
   parallelSafe: false,
@@ -50,9 +49,9 @@ Estimate the minutes honestly. Learners plan their evening around it.`,
 
 export const endLesson: Tool = {
   name: 'end_lesson',
-  description: `Finish teaching. Call it when you have worked through the plan, or when carrying on would not help — you are out of budget, the learner is lost in a way this lesson cannot fix, or they have asked to stop.
+  description: `Finish. Call it once the answer is on the board and checked, in the same turn as save_note. Also call it if carrying on would not help: the budget is spent, or the question cannot be answered as given.
 
-Be honest about objectivesMissed. An examiner that tests something you never got to, and a record that says they learned something they did not, are both worse than a short lesson.`,
+summary: the question, the method and the answer in two or three plain sentences. List honestly under objectivesMissed any stage you did not reach. nextTopics: up to three things worth trying next.`,
   schema: EndLessonInput,
   agents: ['tutor'],
   parallelSafe: false,
@@ -60,25 +59,7 @@ Be honest about objectivesMissed. An examiner that tests something you never got
 
   async run(input: EndLessonIn, ctx: ToolContext): Promise<ToolOutcome> {
     ctx.signalOrchestrator({ t: 'end_lesson', payload: input });
-    return { ok: true, message: 'Lesson closed.' };
-  },
-};
-
-export const finishExam: Tool = {
-  name: 'finish_exam',
-  description: `Close the check and hand back the verdict.
-
-Name the misconception in "gaps", not the question number — "treats the equilibrium constant as depending on concentration" is useful next session; "missed question 3" is not.
-
-The verdict is one sentence the learner reads: are they ready to move on, or is there one specific thing to shore up first?`,
-  schema: FinishExamInput,
-  agents: ['examiner'],
-  parallelSafe: false,
-  suspends: false,
-
-  async run(input: FinishExamIn, ctx: ToolContext): Promise<ToolOutcome> {
-    ctx.signalOrchestrator({ t: 'finish_exam', payload: input });
-    return { ok: true, message: 'Result recorded.' };
+    return { ok: true, message: 'Done.' };
   },
 };
 
@@ -86,8 +67,12 @@ export const fixBoard: Tool = {
   name: 'fix_board',
   description: `Return corrected board operations for a step that failed validation.
 
-You are given the rejected operations and exactly what the validator objected to. Change only what was wrong and keep everything else as it was — you are repairing one step, not rewriting the lesson. Do not add narration; someone else is teaching.`,
+You are given the rejected operations and exactly what the validator objected to. Change only what was wrong and keep everything else as it was — you are repairing one step, not rewriting the solution. Do not add narration; someone else is at the board.`,
   schema: FixBoardInput,
+  wire: (schema) => ({
+    ...schema,
+    properties: { ...schema.properties, ops: { ...BOARD_OPS_WIRE, description: schema.properties?.ops?.description } },
+  }),
   agents: ['repairer'],
   parallelSafe: false,
   suspends: false,

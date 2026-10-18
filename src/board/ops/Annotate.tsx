@@ -40,7 +40,14 @@ export function AnnotateOpView({
       }
       const a = el.getBoundingClientRect();
       const b = container.getBoundingClientRect();
-      setBox({ x: a.left - b.left, y: a.top - b.top, w: a.width, h: a.height });
+      // The overlay scrolls with the page, so positions are in the page's own
+      // coordinates rather than the viewport's.
+      setBox({
+        x: a.left - b.left + container.scrollLeft,
+        y: a.top - b.top + container.scrollTop,
+        w: a.width,
+        h: a.height,
+      });
     };
 
     measure();

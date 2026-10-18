@@ -195,6 +195,30 @@ export const BOARD_OP_KINDS: BoardOpKind[] = [
   'annotate',
 ];
 
+/**
+ * The board operations as the model is told about them in a tool schema: an
+ * object with one of the thirteen op names. The shapes themselves are given
+ * once in the system prompt, and the full schema above still checks every
+ * operation when it arrives.
+ */
+export const BOARD_OPS_WIRE: {
+  type: string;
+  maxItems: number;
+  items: {
+    type: string;
+    properties: Record<string, { type: string; enum: string[] }>;
+    required: string[];
+  };
+} = {
+  type: 'array',
+  maxItems: 12,
+  items: {
+    type: 'object',
+    properties: { op: { type: 'string', enum: [...BOARD_OP_KINDS] } },
+    required: ['op'],
+  },
+};
+
 /** An op once it is on a page: given an index and a resolved id. */
 export interface PlacedOp {
   op: BoardOp;

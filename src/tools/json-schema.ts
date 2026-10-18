@@ -150,3 +150,64 @@ function isOptional(schema: AnyZod): boolean {
   const t = def(schema).typeName;
   return t === 'ZodOptional' || t === 'ZodDefault' || schema.isOptional();
 }
+
+/**
+ * The schema as it is sent to the model (§18).
+ *
+ * A tool's schema is re-sent on every turn, so every key in it is paid for
+ * dozens of times per question. The Zod schema stays the authority and still
+ * validates every call at the bus; what the model is sent drops the keys that
+ * only a validator needs — length and size limits, numeric bounds, patterns,
+ * `additionalProperties`, a `const` that repeats an `enum` — and keeps what
+ * tells the model what to write: names, types, enums, required fields and
+ * descriptions.
+ *
+ * Limits are left out for a second reason. Some services check a tool call
+ * against this schema themselves and refuse the whole response when a string
+ * runs a few characters over, which costs a turn and teaches the model
+ * nothing. Our own bus is the one place a call is checked, and it answers
+ * with the field named so the model can repair it.
+ *
+ * What is sent must also be a valid schema under the current draft, which the
+ * stricter services enforce: a tuple written as an `items` array is not, so it
+ * becomes a plain array of whatever its positions hold.
+ */
+const VALIDATOR_ONLY = new Set([
+  'minLength',
+  'maxLength',
+  'pattern',
+  'format',
+  'minItems',
+  'maxItems',
+  'minimum',
+  'maximum',
+  'default',
+  'additionalProperties',
+]);
+
+function tupleItems(positions: JsonSchema[]): JsonSchema {
+  const slim = positions.map(minifySchema);
+  const distinct = [...new Map(slim.map((s) => [JSON.stringify(s), s])).values()];
+  if (distinct.length === 0) return {};
+  return distinct.length === 1 && distinct[0] ? distinct[0] : { anyOf: distinct };
+}
+
+export function minifySchema(schema: JsonSchema): JsonSchema {
+  const out: JsonSchema = {};
+  for (const [key, value] of Object.entries(schema)) {
+    if (VALIDATOR_ONLY.has(key)) continue;
+    if (key === 'const' && schema.enum) continue;
+    if (key === 'properties' && value && typeof value === 'object') {
+      out.properties = Object.fromEntries(
+        Object.entries(value as Record<string, JsonSchema>).map(([k, v]) => [k, minifySchema(v)]),
+      );
+    } else if (key === 'items' && value && typeof value === 'object') {
+      out.items = Array.isArray(value) ? tupleItems(value as JsonSchema[]) : minifySchema(value as JsonSchema);
+    } else if ((key === 'anyOf' || key === 'oneOf') && Array.isArray(value)) {
+      out[key] = (value as JsonSchema[]).map(minifySchema);
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+}

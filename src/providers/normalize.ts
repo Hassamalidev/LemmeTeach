@@ -14,6 +14,12 @@
  */
 import type { AgentMessage, JsonSchema, ToolSpec } from './types';
 
+/** `data:image/png;base64,AAAA` → its media type and its bare base64 payload. */
+export function splitDataUrl(dataUrl: string): { mime: string; data: string } {
+  const match = /^data:([^;,]+)?(?:;[^,]*)?,(.*)$/s.exec(dataUrl);
+  return { mime: match?.[1] || 'application/octet-stream', data: match?.[2] ?? '' };
+}
+
 /* ------------------------------------------------------------------ *
  * Anthropic
  * ------------------------------------------------------------------ */
@@ -28,7 +34,14 @@ export function toAnthropicMessages(messages: AgentMessage[]): AnthropicMessage[
 
   for (const m of messages) {
     if (m.role === 'user') {
-      out.push({ role: 'user', content: [{ type: 'text', text: m.content }] });
+      // Pictures and documents go before the text that asks about them.
+      const blocks: unknown[] = (m.attachments ?? []).map((a) => {
+        const { mime, data } = splitDataUrl(a.dataUrl);
+        return a.kind === 'image'
+          ? { type: 'image', source: { type: 'base64', media_type: mime, data } }
+          : { type: 'document', source: { type: 'base64', media_type: mime, data } };
+      });
+      out.push({ role: 'user', content: [...blocks, { type: 'text', text: m.content }] });
       continue;
     }
 
@@ -86,9 +99,15 @@ export function toAnthropicTools(tools: ToolSpec[]): unknown[] {
  * OpenAI (and OpenRouter, and every compatible endpoint)
  * ------------------------------------------------------------------ */
 
+export type OpenAiPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } }
+  | { type: 'file'; file: { filename: string; file_data: string } };
+
 export interface OpenAiMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content?: string | null;
+  /** A string, or content parts when the learner attached a picture or file. */
+  content?: string | null | OpenAiPart[];
   tool_calls?: {
     id: string;
     type: 'function';
@@ -102,12 +121,33 @@ export function toOpenAiMessages(system: string, messages: AgentMessage[]): Open
 
   for (const m of messages) {
     if (m.role === 'user') {
-      out.push({ role: 'user', content: m.content });
+      if (m.attachments?.length) {
+        out.push({
+          role: 'user',
+          content: [
+            { type: 'text', text: m.content },
+            ...m.attachments.map(
+              (a): OpenAiPart =>
+                a.kind === 'image'
+                  ? { type: 'image_url', image_url: { url: a.dataUrl } }
+                  : { type: 'file', file: { filename: a.name, file_data: a.dataUrl } },
+            ),
+          ],
+        });
+      } else {
+        out.push({ role: 'user', content: m.content });
+      }
       continue;
     }
 
     if (m.role === 'assistant') {
-      const msg: OpenAiMessage = { role: 'assistant', content: m.content || null };
+      // A turn where the model said nothing and called nothing must still
+      // carry some text: several services refuse an assistant message with
+      // neither content nor tool calls, and the whole question dies on it.
+      const msg: OpenAiMessage = {
+        role: 'assistant',
+        content: m.content || (m.toolCalls.length ? null : '(no reply)'),
+      };
       if (m.toolCalls.length) {
         msg.tool_calls = m.toolCalls.map((c) => ({
           id: c.id,
@@ -155,7 +195,11 @@ export function toGeminiContents(messages: AgentMessage[]): GeminiContent[] {
 
   for (const m of messages) {
     if (m.role === 'user') {
-      out.push({ role: 'user', parts: [{ text: m.content }] });
+      const files = (m.attachments ?? []).map((a) => {
+        const { mime, data } = splitDataUrl(a.dataUrl);
+        return { inlineData: { mimeType: mime, data } };
+      });
+      out.push({ role: 'user', parts: [...files, { text: m.content }] });
       continue;
     }
 

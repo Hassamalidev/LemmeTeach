@@ -1,22 +1,39 @@
 /*
  * Content-Security-Policy bootstrap.
  *
- * The policy is mostly static, but §5.5 lets a learner point the "compatible"
- * adapter at their own base URL (Ollama, LM Studio, vLLM, a company gateway).
- * A hard-coded <meta> could never allow that host, and the alternative —
- * a wide-open connect-src — throws away the guarantee that the key can only
- * travel to the endpoint the user chose.
+ * connect-src is the guarantee behind §19: the page can reach our own origin
+ * (for activation), the model providers, Wikipedia and the Pyodide CDN, and
+ * nothing else. A key cannot travel anywhere it should not.
  *
- * So the meta element is assembled here instead, synchronously during head
- * parsing, from the one origin the user has actually configured. This file is
- * loaded with a plain <script src>, not inline, so script-src stays 'self'.
+ * The policy is assembled here, synchronously during head parsing, because a
+ * self-hosted Pyodide (npm run vendor:pyodide) changes one of those origins.
+ * This file is loaded with a plain <script src>, not inline, so script-src
+ * stays 'self'.
  */
 (function () {
+  // The gateway a plan uses, and every service a learner's own key can
+  // belong to (§5.8). A key only ever travels to the one that issued it.
+  // Must list every origin in OWN_KEY_ORIGINS (src/providers/own-key.ts); a
+  // test holds the two together.
   var PROVIDERS = [
+    'https://openrouter.ai',
     'https://api.anthropic.com',
     'https://api.openai.com',
     'https://generativelanguage.googleapis.com',
-    'https://openrouter.ai',
+    'https://api.mistral.ai',
+    'https://api.groq.com',
+    'https://api.deepseek.com',
+    'https://api.x.ai',
+    'https://api.together.xyz',
+    'https://api.fireworks.ai',
+    'https://api.cerebras.ai',
+    'https://api.cohere.ai',
+    'https://dashscope-intl.aliyuncs.com',
+    'https://api.moonshot.ai',
+    'https://api.hyperbolic.xyz',
+    // TESTING ONLY — a local Ollama. Comment out with its entry in
+    // src/providers/own-key.ts before shipping.
+    'http://localhost:11434',
   ];
   var KNOWLEDGE = ['https://en.wikipedia.org', 'https://*.wikipedia.org'];
   var PYODIDE = ['https://cdn.jsdelivr.net'];
@@ -26,11 +43,6 @@
     var raw = localStorage.getItem('chalk.settings');
     if (raw) {
       var s = JSON.parse(raw);
-      var base = s && s.compatibleBaseUrl;
-      if (typeof base === 'string' && base) {
-        var u = new URL(base);
-        extra.push(u.protocol + '//' + u.host);
-      }
       if (s && typeof s.pyodideBaseUrl === 'string' && s.pyodideBaseUrl.indexOf('http') === 0) {
         extra.push(new URL(s.pyodideBaseUrl).origin);
       }
@@ -59,6 +71,7 @@
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'none'",
+    "frame-ancestors 'none'",
   ].join('; ');
 
   var meta = document.createElement('meta');

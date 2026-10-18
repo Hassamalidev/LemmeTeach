@@ -2,22 +2,22 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <!-- Assembles the CSP from the user's configured endpoints. Must stay first. -->
+    <!-- Assembles the Content-Security-Policy. Must stay first. -->
     <script src="./csp.js"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="dark light" />
     <meta
       name="description"
-      content="Chalk — an AI tutor that plans a lesson, teaches it on a whiteboard while speaking, runs code, and asks you questions. Runs entirely in your browser with your own API key."
+      content="LemmeTeach — type a question, paste a screenshot or attach a file, and watch it solved step by step on a whiteboard, explained aloud. Any subject."
     />
-    <title>Chalk</title>
+    <title>LemmeTeach — your question, solved step by step</title>
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="./fonts.css" />
   </head>
   <body>
     <div id="root"></div>
     <noscript>
-      Chalk is an AI tutor that runs entirely in your browser, so it needs JavaScript enabled.
+      LemmeTeach teaches on a live whiteboard in your browser, so it needs JavaScript enabled.
     </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>

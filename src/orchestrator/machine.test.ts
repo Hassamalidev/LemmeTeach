@@ -1,50 +1,55 @@
 /**
- * The phase machine is code, so it gets tested like code. These assertions are
- * the ones that separate a tutor from a video player: that a bad check forces
- * remediation whatever the model would have preferred, and that abort is
- * reachable from everywhere.
+ * The phase machine is code, so it gets tested like code: that a question is
+ * read before it is solved, that the only wait is a clarifying one, and that
+ * abort is reachable from everywhere.
  */
 import { describe, expect, it } from 'vitest';
-import { canTransition, nextPhase, PHASES, type Phase, type PhaseEvent } from './machine';
+import { canTransition, isRunning, nextPhase, PHASES, type Phase, type PhaseEvent } from './machine';
+
+const EVENTS: PhaseEvent[] = [
+  { t: 'start' },
+  { t: 'planned' },
+  { t: 'ask_started' },
+  { t: 'ask_finished' },
+  { t: 'raise_hand' },
+  { t: 'resume' },
+  { t: 'solved' },
+];
 
 describe('phase machine', () => {
-  it('plans before it teaches', () => {
+  it('reads the question before it solves it', () => {
     expect(nextPhase('IDLE', { t: 'start' })).toBe('PLANNING');
     expect(nextPhase('PLANNING', { t: 'planned' })).toBe('TEACHING');
   });
 
-  it('suspends into CHECKING when the tutor asks something', () => {
-    expect(nextPhase('TEACHING', { t: 'ask_started' })).toBe('CHECKING');
+  it('waits on the learner only while reading, and goes back to reading', () => {
+    expect(nextPhase('PLANNING', { t: 'ask_started' })).toBe('CHECKING');
+    expect(nextPhase('CHECKING', { t: 'ask_finished' }, 'PLANNING')).toBe('PLANNING');
   });
 
-  it('forces remediation on a score under 80%, whatever the model wanted', () => {
-    expect(nextPhase('CHECKING', { t: 'ask_finished', score: 0.5 })).toBe('REMEDIATING');
-    expect(nextPhase('CHECKING', { t: 'ask_finished', score: 0.2 })).toBe('REMEDIATING');
-    expect(nextPhase('CHECKING', { t: 'ask_finished', score: 0.79 })).toBe('REMEDIATING');
+  it('has no way to stop and quiz once it is solving', () => {
+    expect(nextPhase('TEACHING', { t: 'ask_started' })).toBe('TEACHING');
+    expect(PHASES).not.toContain('EXAMINING');
+    expect(PHASES).not.toContain('REMEDIATING');
   });
 
-  it('carries on at 80% or better', () => {
-    expect(nextPhase('CHECKING', { t: 'ask_finished', score: 0.8 })).toBe('TEACHING');
-    expect(nextPhase('CHECKING', { t: 'ask_finished', score: 1 })).toBe('TEACHING');
-  });
-
-  it('treats a free-text answer with no score as no reason to remediate', () => {
-    expect(nextPhase('CHECKING', { t: 'ask_finished' })).toBe('TEACHING');
-  });
-
-  it('returns a check raised during the exam to the exam, not to teaching', () => {
-    expect(nextPhase('CHECKING', { t: 'ask_finished', score: 0.3 }, 'EXAMINING')).toBe('EXAMINING');
-  });
-
-  it('interrupts and resumes without restarting the lesson', () => {
+  it('interrupts and resumes without starting again', () => {
     expect(nextPhase('TEACHING', { t: 'raise_hand' })).toBe('INTERRUPTED');
     expect(nextPhase('INTERRUPTED', { t: 'resume' })).toBe('TEACHING');
   });
 
-  it('goes to the exam or straight to review, as the tutor asked', () => {
-    expect(nextPhase('TEACHING', { t: 'lesson_ended', runExam: true })).toBe('EXAMINING');
-    expect(nextPhase('TEACHING', { t: 'lesson_ended', runExam: false })).toBe('REVIEW');
-    expect(nextPhase('EXAMINING', { t: 'exam_finished' })).toBe('REVIEW');
+  it('ends at the answer, with nothing after it', () => {
+    expect(nextPhase('TEACHING', { t: 'solved' })).toBe('REVIEW');
+    for (const event of EVENTS) {
+      if (event.t === 'raise_hand') continue;
+      expect(nextPhase('REVIEW', event)).toBe('REVIEW');
+    }
+  });
+
+  it('still takes a question once the solution is finished', () => {
+    expect(nextPhase('REVIEW', { t: 'raise_hand' })).toBe('INTERRUPTED');
+    expect(nextPhase('INTERRUPTED', { t: 'resume' })).toBe('TEACHING');
+    expect(nextPhase('TEACHING', { t: 'solved' })).toBe('REVIEW');
   });
 
   it('can be aborted from every phase', () => {
@@ -55,33 +60,13 @@ describe('phase machine', () => {
 
   it('ignores events that make no sense in the current phase', () => {
     expect(nextPhase('PLANNING', { t: 'raise_hand' })).toBe('PLANNING');
-    expect(nextPhase('REVIEW', { t: 'ask_started' })).toBe('REVIEW');
+    expect(nextPhase('PLANNING', { t: 'solved' })).toBe('PLANNING');
+    expect(nextPhase('IDLE', { t: 'planned' })).toBe('IDLE');
   });
 
-  it('lets a lesson end while it is remediating', () => {
-    // A check that goes badly near the end of a lesson is the ordinary case.
-    // Without this the session has nowhere to go and the learner never
-    // reaches their review screen — which is what actually happened.
-    expect(nextPhase('REMEDIATING', { t: 'lesson_ended', runExam: true })).toBe('EXAMINING');
-    expect(nextPhase('REMEDIATING', { t: 'lesson_ended', runExam: false })).toBe('REVIEW');
-  });
-
-  it('can reach an ending from every phase a lesson passes through', () => {
+  it('can reach an ending from every phase a session passes through', () => {
     // Legal transitions are not enough: a phase can be perfectly well-formed
     // and still be a dead end. Every phase has to be able to *finish*.
-    const events: PhaseEvent[] = [
-      { t: 'start' },
-      { t: 'planned' },
-      { t: 'ask_started' },
-      { t: 'ask_finished', score: 0.9 },
-      { t: 'ask_finished', score: 0.1 },
-      { t: 'raise_hand' },
-      { t: 'resume' },
-      { t: 'lesson_ended', runExam: true },
-      { t: 'lesson_ended', runExam: false },
-      { t: 'exam_finished' },
-    ];
-
     const ENDINGS: Phase[] = ['REVIEW', 'ABORTED'];
 
     for (const start of PHASES) {
@@ -96,17 +81,15 @@ describe('phase machine', () => {
       while (queue.length && !reached) {
         const phase = queue.shift();
         if (!phase) break;
-        for (const event of events) {
-          for (const previous of ['TEACHING', 'EXAMINING'] as Phase[]) {
-            const to = nextPhase(phase, event, previous);
-            if (ENDINGS.includes(to)) {
-              reached = true;
-              break;
-            }
-            if (!seen.has(to)) {
-              seen.add(to);
-              queue.push(to);
-            }
+        for (const event of EVENTS) {
+          const to = nextPhase(phase, event);
+          if (ENDINGS.includes(to)) {
+            reached = true;
+            break;
+          }
+          if (!seen.has(to)) {
+            seen.add(to);
+            queue.push(to);
           }
         }
       }
@@ -116,28 +99,18 @@ describe('phase machine', () => {
   });
 
   it('never produces an illegal transition for any event', () => {
-    const events = [
-      { t: 'start' },
-      { t: 'planned' },
-      { t: 'ask_started' },
-      { t: 'ask_finished', score: 0.9 },
-      { t: 'ask_finished', score: 0.1 },
-      { t: 'raise_hand' },
-      { t: 'resume' },
-      { t: 'lesson_ended', runExam: true },
-      { t: 'lesson_ended', runExam: false },
-      { t: 'exam_finished' },
-      { t: 'abort' },
-      { t: 'reset' },
-    ] as const;
-
+    const all: PhaseEvent[] = [...EVENTS, { t: 'abort' }, { t: 'reset' }];
     for (const from of PHASES) {
-      for (const event of events) {
-        for (const previous of ['TEACHING', 'EXAMINING'] as Phase[]) {
+      for (const event of all) {
+        for (const previous of PHASES) {
           const to = nextPhase(from, event, previous);
           expect(canTransition(from, to), `${from} -> ${to} on ${event.t}`).toBe(true);
         }
       }
     }
+  });
+
+  it('counts only reading and solving as running', () => {
+    expect(PHASES.filter(isRunning)).toEqual(['PLANNING', 'TEACHING']);
   });
 });

@@ -13,6 +13,7 @@
 
 export type ChalkErrorKind =
   | 'AuthError'
+  | 'CreditError'
   | 'RateLimitError'
   | 'OverloadedError'
   | 'NetworkError'
@@ -75,6 +76,7 @@ const mk =
     new ChalkError({ kind, message, retryable, ...extra });
 
 export const authError = mk('AuthError', false);
+export const creditError = mk('CreditError', false);
 export const rateLimitError = mk('RateLimitError', true);
 export const overloadedError = mk('OverloadedError', true);
 export const networkError = mk('NetworkError', true);
@@ -117,6 +119,14 @@ export function errorFromResponse(
   const retryAfterHeader = headers?.get('retry-after');
   const retryAfter = retryAfterHeader ? Number(retryAfterHeader) : undefined;
 
+  // A subscriber's key carries a spending cap (§28). Hitting it is not a bad
+  // key and must never be retried: nothing changes until the next payment.
+  if (status === 402 || (status === 403 && /limit exceeded|insufficient credit/i.test(bodyText))) {
+    return creditError(
+      'You have used this month’s credit. It renews with your next payment, or you can move to a bigger plan.',
+      { detail, status },
+    );
+  }
   if (status === 401 || status === 403) {
     return authError(
       `${providerLabel} rejected that key. Check it in Settings.`,
@@ -131,6 +141,14 @@ export function errorFromResponse(
   }
   if (status === 529 || status === 503 || status === 502 || status === 504) {
     return overloadedError(`${providerLabel} is overloaded right now.`, { detail, status });
+  }
+  // Some services check a tool call themselves and answer 400 when the model
+  // wrote one badly. Nothing is wrong with the request: asking again is the fix.
+  if (status === 400 && /tool_use_failed|tool call validation failed|failed to call a function/i.test(bodyText)) {
+    return overloadedError(`The model on ${providerLabel} wrote a step that could not be read. Trying again.`, {
+      detail,
+      status,
+    });
   }
   if (status === 400 && /context|too many tokens|maximum context|token count/i.test(bodyText)) {
     return contextError('The conversation outgrew the model context window.', {
@@ -162,7 +180,7 @@ export function errorFromFetchFailure(providerLabel: string, e: unknown): ChalkE
   }
   const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
   if (offline) {
-    return networkError('You appear to be offline. Chalk needs a connection to reach the model.');
+    return networkError('You appear to be offline. LemmeTeach needs a connection to reach the model.');
   }
   const detail = e instanceof Error ? e.message : String(e);
   return networkError(

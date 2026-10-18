@@ -1,0 +1,90 @@
+{
+  "about": "The golden set: questions with known answers, used to check that a change to a prompt, a model or the skills document did not make solutions worse. Run each one, compare the stated final answer with `answer`, and check every item under `mustShow`. Change one thing at a time and re-run. There is no automatic runner yet; these are run by hand with a real key.",
+  "version": 1,
+  "cases": [
+    {
+      "id": "physics-projectile",
+      "subject": "physics",
+      "question": "A ball is thrown from the ground at 20 m/s, 40 degrees above the horizontal. Ignoring air resistance, how long is it in the air and how far away does it land? Use g = 9.81 m/s^2.",
+      "answer": "Time in the air about 2.62 s; range about 40.2 m.",
+      "mustShow": ["what is given and what is asked", "a diagram or the velocity split into components", "units on both answers", "a sanity check"]
+    },
+    {
+      "id": "math-by-parts",
+      "subject": "math",
+      "question": "Integrate x cos(x) dx.",
+      "answer": "x sin(x) + cos(x) + C",
+      "mustShow": ["the choice of u and dv", "the constant of integration", "a check by differentiating the result"]
+    },
+    {
+      "id": "math-quadratic",
+      "subject": "math",
+      "question": "Solve 2x^2 - 7x + 3 = 0.",
+      "answer": "x = 3 or x = 1/2",
+      "mustShow": ["the method named", "both roots", "a check by substituting back"]
+    },
+    {
+      "id": "math-chain-rule",
+      "subject": "math",
+      "question": "Differentiate sin(x^2) with respect to x.",
+      "answer": "2x cos(x^2)",
+      "mustShow": ["the chain rule named", "the inner and outer function identified"]
+    },
+    {
+      "id": "chemistry-moles",
+      "subject": "chemistry",
+      "question": "How many moles of water are in 36 g of water?",
+      "answer": "About 2.0 mol (molar mass of water is about 18.0 g/mol).",
+      "mustShow": ["the molar mass worked out from H and O", "units carried through"]
+    },
+    {
+      "id": "chemistry-ph",
+      "subject": "chemistry",
+      "question": "What is the pH of a 0.01 M solution of hydrochloric acid?",
+      "answer": "pH = 2",
+      "mustShow": ["that HCl is a strong acid and fully dissociates", "the definition of pH used"]
+    },
+    {
+      "id": "physics-series-circuit",
+      "subject": "physics",
+      "question": "A 12 V battery is connected to a 4 ohm and a 2 ohm resistor in series. What current flows, and what is the voltage across the 4 ohm resistor?",
+      "answer": "Current 2 A; 8 V across the 4 ohm resistor.",
+      "mustShow": ["total resistance found first", "a circuit diagram or equivalent", "the two voltages adding to 12 V as a check"]
+    },
+    {
+      "id": "finance-compound",
+      "subject": "finance",
+      "question": "I put $1,000 in an account paying 7% a year, compounded once a year. How much is there after 10 years?",
+      "answer": "About $1,967.15",
+      "mustShow": ["the formula with each symbol named", "the currency and the period on the figures", "the interest earned as well as the total"]
+    },
+    {
+      "id": "cs-binary-search-bound",
+      "subject": "cs",
+      "question": "What is the most comparisons binary search needs to find an item in a sorted list of 1,000,000 items?",
+      "answer": "20",
+      "mustShow": ["that each comparison halves what is left", "the logarithm base 2", "why the answer is rounded up"]
+    },
+    {
+      "id": "cs-nested-loop",
+      "subject": "cs",
+      "question": "What is the time complexity of this code? for i in range(n): for j in range(i): print(i, j)",
+      "answer": "O(n^2)",
+      "mustShow": ["the inner loop counted as 0 + 1 + ... + (n - 1)", "the sum n(n - 1)/2", "why the constant and the lower-order term are dropped"]
+    },
+    {
+      "id": "biology-punnett",
+      "subject": "biology",
+      "question": "Two parents are both heterozygous (Aa) for a recessive condition. What is the chance their child has the condition?",
+      "answer": "25% (1 in 4)",
+      "mustShow": ["a Punnett square or the four combinations", "which genotype shows the condition"]
+    },
+    {
+      "id": "general-statistics",
+      "subject": "general",
+      "question": "Find the mean and the median of 3, 7, 7, 10, 13.",
+      "answer": "Mean 8; median 7.",
+      "mustShow": ["the sum and the count for the mean", "the values in order for the median"]
+    }
+  ]
+}

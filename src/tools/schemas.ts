@@ -30,18 +30,20 @@ export const TeachStepInput = z
       .min(1)
       .max(1200)
       .describe(
-        'Plain spoken narration, 2 to 5 sentences. A speech engine reads this aloud verbatim, so write it the way you would say it: no markdown, no LaTeX, no bullet characters, no symbols. Say "d by d x" rather than writing the notation. Carry the meaning here and put the notation on the board — never read the board out loud.',
+'Spoken narration, 2 to 4 sentences, read aloud verbatim: no markdown, LaTeX or symbols. Never read the board out loud.',
       ),
     board: z
       .array(BoardOpSchema)
       .max(12)
       .describe(
-        'The operations to write on the board for this step. The board carries notation and structure; it must not repeat the narration as sentences.',
+'Board operations for this step, in the shapes listed under THE BOARD.',
       ),
     clear: z
       .boolean()
       .optional()
-      .describe('True starts a fresh board page. Set this when the last result said boardFull.'),
+      .describe(
+        'True starts a fresh section of the board, under a rule. Earlier sections stay on screen above. Set this when the last result said boardFull, or when starting a new question.',
+      ),
     objective: z
       .string()
       .max(32)
@@ -91,60 +93,6 @@ export const AskLearnerInput = z
   });
 
 /* ------------------------------------------------------------------ *
- * 9.3  check_understanding — suspends
- * ------------------------------------------------------------------ */
-
-export const CheckUnderstandingInput = z
-  .object({
-    questions: z
-      .array(
-        z
-          .object({
-            q: z.string().min(1).max(400).describe('The question.'),
-            options: z
-              .array(z.string().min(1).max(160))
-              .min(2)
-              .max(5)
-              .describe('Two to five options. Wrong options should be plausible misconceptions.'),
-            answer: z
-              .number()
-              .int()
-              .min(0)
-              .describe('Zero-based index of the correct option.'),
-            why: z
-              .string()
-              .max(300)
-              .describe('One sentence explaining why that answer is right. Shown after answering.'),
-            concept: conceptId.describe(
-              'The concept this question tests, so a wrong answer updates the right record.',
-            ),
-          })
-          .strict(),
-      )
-      .min(2)
-      .max(4),
-    onFail: z
-      .string()
-      .max(80)
-      .optional()
-      .describe(
-        'Optional hint for what to do on a low score, for example "prerequisite:momentum-conservation".',
-      ),
-  })
-  .strict()
-  .superRefine((v, ctx) => {
-    v.questions.forEach((q, i) => {
-      if (q.answer >= q.options.length) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['questions', i, 'answer'],
-          message: `answer ${q.answer} is out of range; there are ${q.options.length} options (0 to ${q.options.length - 1})`,
-        });
-      }
-    });
-  });
-
-/* ------------------------------------------------------------------ *
  * 9.4  run_code
  * ------------------------------------------------------------------ */
 
@@ -187,18 +135,6 @@ export const ComputeInput = z
   .strict();
 
 /* ------------------------------------------------------------------ *
- * 9.6  search_materials
- * ------------------------------------------------------------------ */
-
-export const SearchMaterialsInput = z
-  .object({
-    query: z.string().min(1).max(300).describe('What to look for, in the learner’s own words where you have them.'),
-    k: z.number().int().min(1).max(8).optional().describe('How many passages to return, default 4.'),
-    docId: z.string().max(64).optional().describe('Restrict the search to one document.'),
-  })
-  .strict();
-
-/* ------------------------------------------------------------------ *
  * 9.7  wiki_lookup
  * ------------------------------------------------------------------ */
 
@@ -212,65 +148,7 @@ export const WikiLookupInput = z
   .strict();
 
 /* ------------------------------------------------------------------ *
- * 9.8 / 9.9  learner memory
- * ------------------------------------------------------------------ */
-
-export const RecallLearnerInput = z
-  .object({
-    concepts: z
-      .array(conceptId)
-      .max(12)
-      .optional()
-      .describe('Concepts to look up. Omit for a short profile summary instead of the whole record.'),
-    includeRecentLessons: z.boolean().optional().describe('Include the last three lesson titles.'),
-  })
-  .strict();
-
-export const UpdateLearnerInput = z
-  .object({
-    updates: z
-      .array(
-        z
-          .object({
-            concept: conceptId,
-            mastery: z
-              .number()
-              .min(0)
-              .max(1)
-              .optional()
-              .describe(
-                'How well they hold this concept right now, 0 to 1, judged from what you just saw. The store blends this with history rather than overwriting, so report the observation, not a running average.',
-              ),
-            confidence: z
-              .number()
-              .min(0)
-              .max(1)
-              .optional()
-              .describe('How much weight this observation deserves. A single lucky answer is low.'),
-            evidence: z
-              .string()
-              .max(300)
-              .optional()
-              .describe('What they actually did, for example "applied it to sin(x^2) unprompted".'),
-            misconception: z
-              .string()
-              .max(300)
-              .optional()
-              .describe('A specific wrong belief you saw, phrased as they would phrase it.'),
-            resolved: z
-              .boolean()
-              .optional()
-              .describe('True when a misconception you had recorded is now cleared up.'),
-          })
-          .strict(),
-      )
-      .min(1)
-      .max(8),
-  })
-  .strict();
-
-/* ------------------------------------------------------------------ *
- * 9.10 / 9.11  notes and review
+ * save_note
  * ------------------------------------------------------------------ */
 
 export const SaveNoteInput = z
@@ -287,14 +165,6 @@ export const SaveNoteInput = z
   })
   .strict();
 
-export const ScheduleReviewInput = z
-  .object({
-    concept: conceptId,
-    dueInDays: z.number().int().min(1).max(180),
-    reason: z.string().max(240).describe('Why this needs revisiting, in one line.'),
-  })
-  .strict();
-
 /* ------------------------------------------------------------------ *
  * 9.12–9.15  terminal tools
  * ------------------------------------------------------------------ */
@@ -304,6 +174,13 @@ export const PlanLessonInput = z
     title: z.string().min(1).max(120),
     level: z.enum(LEVELS),
     subject: z.enum(SUBJECT_IDS).optional(),
+    problem: z
+      .string()
+      .max(6000)
+      .optional()
+      .describe(
+        'When solving a question: the question restated in full — every number, unit and condition, what is asked, and a precise description of any figure. The solver sees only this, never the attachment.',
+      ),
     objectives: z
       .array(
         z
@@ -314,7 +191,7 @@ export const PlanLessonInput = z
               .min(1)
               .max(240)
               .describe(
-                'Written as "the learner can …" and testable. Never "understand X" — you cannot check that.',
+                'In a lesson: written as "the learner can …" and testable. When solving a question: one stage of the solution, in order, like "Find the time in the air".',
               ),
           })
           .strict(),
@@ -348,11 +225,11 @@ export const PlanLessonInput = z
               'recap',
               'check',
             ]),
-            note: z.string().max(240).describe('One line on what happens in this step.'),
+            note: z.string().max(600).describe('One line on what happens in this step.'),
           })
           .strict(),
       )
-      .min(5)
+      .min(3)
       .max(9),
     estimatedMinutes: z
       .number()
@@ -365,23 +242,14 @@ export const PlanLessonInput = z
 
 export const EndLessonInput = z
   .object({
-    summary: z.string().min(1).max(1200).describe('What was covered, in plain spoken language.'),
+    summary: z
+      .string()
+      .min(1)
+      .max(1200)
+      .describe('What the question was, the method, and the answer, in plain language.'),
     objectivesMet: z.array(z.string().max(16)).max(8),
     objectivesMissed: z.array(z.string().max(16)).max(8),
     nextTopics: z.array(z.string().max(120)).max(5),
-    runExam: z.boolean().describe('Whether to finish with a short check. Usually true.'),
-  })
-  .strict();
-
-export const FinishExamInput = z
-  .object({
-    score: z.number().min(0).max(1),
-    strengths: z.array(z.string().max(240)).max(5),
-    gaps: z
-      .array(z.string().max(240))
-      .max(5)
-      .describe('Name the misconception, not "got question 3 wrong".'),
-    verdict: z.string().min(1).max(300).describe('One sentence: are they ready to move on?'),
   })
   .strict();
 
@@ -397,18 +265,12 @@ export const FixBoardInput = z
 
 export type TeachStepIn = z.infer<typeof TeachStepInput>;
 export type AskLearnerIn = z.infer<typeof AskLearnerInput>;
-export type CheckUnderstandingIn = z.infer<typeof CheckUnderstandingInput>;
 export type RunCodeIn = z.infer<typeof RunCodeInput>;
 export type ComputeIn = z.infer<typeof ComputeInput>;
-export type SearchMaterialsIn = z.infer<typeof SearchMaterialsInput>;
 export type WikiLookupIn = z.infer<typeof WikiLookupInput>;
-export type RecallLearnerIn = z.infer<typeof RecallLearnerInput>;
-export type UpdateLearnerIn = z.infer<typeof UpdateLearnerInput>;
 export type SaveNoteIn = z.infer<typeof SaveNoteInput>;
-export type ScheduleReviewIn = z.infer<typeof ScheduleReviewInput>;
 export type PlanLessonIn = z.infer<typeof PlanLessonInput>;
 export type EndLessonIn = z.infer<typeof EndLessonInput>;
-export type FinishExamIn = z.infer<typeof FinishExamInput>;
 export type FixBoardIn = z.infer<typeof FixBoardInput>;
 
 export type LessonPlan = PlanLessonIn & { id: string; createdAt: number };

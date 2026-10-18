@@ -5,7 +5,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   AskLearnerInput,
-  CheckUnderstandingInput,
   PlanLessonInput,
   TeachStepInput,
 } from './schemas';
@@ -51,29 +50,6 @@ describe('ask_learner', () => {
   });
 });
 
-describe('check_understanding', () => {
-  const q = (answer: number) => ({
-    q: 'Which is conserved?',
-    options: ['Momentum', 'Energy'],
-    answer,
-    why: 'because',
-    concept: 'collision',
-  });
-
-  it('rejects an answer index outside the options', () => {
-    const r = CheckUnderstandingInput.safeParse({ questions: [q(0), q(7)] });
-    expect(r.success).toBe(false);
-    if (!r.success) {
-      expect(r.error.issues[0]?.message).toContain('out of range');
-    }
-  });
-
-  it('rejects a single-question check — that is what ask_learner is for', () => {
-    const r = CheckUnderstandingInput.safeParse({ questions: [q(0)] });
-    expect(r.success).toBe(false);
-  });
-});
-
 describe('plan_lesson', () => {
   const base = {
     title: 'Integration by parts',
@@ -101,9 +77,14 @@ describe('plan_lesson', () => {
     expect(r.success).toBe(false);
   });
 
-  it('rejects fewer than five steps', () => {
-    const r = PlanLessonInput.safeParse({ ...base, steps: base.steps.slice(0, 3) });
-    expect(r.success).toBe(false);
+  it('rejects fewer than three steps, and accepts a short worked solution', () => {
+    expect(PlanLessonInput.safeParse({ ...base, steps: base.steps.slice(0, 2) }).success).toBe(false);
+    expect(PlanLessonInput.safeParse({ ...base, steps: base.steps.slice(0, 3) }).success).toBe(true);
+  });
+
+  it('carries the question restated in full, for the solver that cannot see the upload', () => {
+    const r = PlanLessonInput.safeParse({ ...base, problem: 'A ball is thrown at 20 m/s at 40 degrees. How far does it land?' });
+    expect(r.success).toBe(true);
   });
 });
 
@@ -138,8 +119,8 @@ describe('generated JSON Schema', () => {
 });
 
 describe('the catalog', () => {
-  it('has the fifteen tools from §9', () => {
-    expect(ALL_TOOLS).toHaveLength(15);
+  it('has the nine tools from §9', () => {
+    expect(ALL_TOOLS).toHaveLength(9);
   });
 
   it('matches the §8.1 access matrix', () => {
@@ -150,36 +131,27 @@ describe('the catalog', () => {
         .map((s) => s.name)
         .sort();
 
-    expect(names('planner')).toEqual(
-      ['plan_lesson', 'recall_learner', 'search_materials', 'wiki_lookup'].sort(),
-    );
+    // The reader is the only one that may ask, and only to clarify.
+    expect(names('planner')).toEqual(['ask_learner', 'plan_lesson', 'wiki_lookup'].sort());
+    // The solver cannot ask the learner anything at all.
     expect(names('tutor')).toEqual(
-      [
-        'ask_learner',
-        'check_understanding',
-        'compute',
-        'end_lesson',
-        'recall_learner',
-        'run_code',
-        'save_note',
-        'search_materials',
-        'teach_step',
-        'update_learner',
-        'wiki_lookup',
-      ].sort(),
-    );
-    expect(names('examiner')).toEqual(
-      [
-        'ask_learner',
-        'check_understanding',
-        'compute',
-        'finish_exam',
-        'recall_learner',
-        'schedule_review',
-        'update_learner',
-      ].sort(),
+      ['compute', 'end_lesson', 'run_code', 'save_note', 'teach_step', 'wiki_lookup'].sort(),
     );
     expect(names('repairer')).toEqual(['fix_board']);
+  });
+
+  it('has nothing left from quizzing, exams or a learner record', () => {
+    const names = ALL_TOOLS.map((t) => t.name);
+    for (const gone of [
+      'check_understanding',
+      'finish_exam',
+      'recall_learner',
+      'update_learner',
+      'schedule_review',
+      'search_materials',
+    ]) {
+      expect(names).not.toContain(gone);
+    }
   });
 
   it('gives every tool a description written for the model, not a stub', () => {

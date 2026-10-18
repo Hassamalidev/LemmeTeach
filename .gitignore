@@ -13,3 +13,9 @@ evals/results/
 # Vendored at build time by npm run vendor:pyodide — around 10 MB, and the
 # default is to load Pyodide from a CDN, so it does not belong in the repo.
 public/pyodide/
+
+# Local secrets and Vercel project link — never commit these.
+.env
+.env.*
+!.env.example
+.vercel

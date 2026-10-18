@@ -1,25 +1,19 @@
 /**
  * The session (§3).
  *
- * Owns the lifecycle of one lesson: it drives the phase machine, runs the four
- * agents in turn, supplies every tool port, and holds the state the UI renders.
+ * Owns the lifecycle of one solved question: it drives the phase machine, runs
+ * the reader and then the solver, supplies every tool port, and holds the
+ * state the UI renders.
  *
  * It is an event emitter rather than a React store because the runtime has to
- * be drivable with no DOM at all — the integration tests replay a tape through
- * this exact class (§22).
+ * be drivable with no DOM at all — the integration tests replay a walkthrough
+ * through this exact class (§22).
  */
-import {
-  now,
-  uid,
-  type AgentId,
-  type Level,
-  type Pace,
-  type SubjectId,
-} from '../core/types';
+import { now, uid, type AgentId, type Level, type SubjectId } from '../core/types';
 import { BoardModel } from '../board/page';
 import type { BoardOp } from '../board/op-schema';
 import { Budget, type BudgetSnapshot } from '../runtime/budget';
-import { asChalkError, ChalkError, loopError } from '../runtime/errors';
+import { asChalkError, ChalkError } from '../runtime/errors';
 import { runAgent, type AgentConfig, type RunContext } from '../runtime/loop';
 import { Trace, statusFor } from '../runtime/trace';
 import { createToolBus } from '../tools/registry';
@@ -30,98 +24,104 @@ import type {
   LearnerPort,
   NotesPort,
   OrchestratorSignal,
-  QuizOutcome,
-  QuizQuestion,
   SandboxPort,
   TeachStepRequest,
   ToolContext,
 } from '../tools/context';
-import type { AdapterConfig, ProviderAdapter } from '../providers/types';
-import type { LessonPlan, EndLessonIn, FinishExamIn } from '../tools/schemas';
+import type {
+  AdapterConfig,
+  AgentMessage,
+  Attachment,
+  ProviderAdapter,
+} from '../providers/types';
+import type { EndLessonIn, LessonPlan } from '../tools/schemas';
 import type { Settings } from '../storage/settings';
 import {
   AGENT_SPECS,
-  examinerPrompt,
-  examinerSeed,
-  plannerPrompt,
-  plannerSeed,
+  readerPrompt,
+  readerSeed,
   repairerPrompt,
   repairerSeed,
-  tutorPrompt,
-  tutorSeed,
+  solverPrompt,
+  solverSeed,
   type PromptContext,
 } from '../agents';
-import { remediationInstruction, WRAP_UP_INSTRUCTION } from '../agents/prompts/policy';
-import { nextPhase, PREREQUISITE_THRESHOLD, type Phase, type PhaseEvent } from './machine';
-import { parseScripted, scriptedPrompt, ToolCapabilityWatch } from '../runtime/scripted';
-import { BOARD_CONTRACT } from '../agents/prompts/base';
-import type { LearnerStore } from '../memory/store';
-import type { MaterialsStore } from '../materials/store';
+import { WRAP_UP_INSTRUCTION } from '../agents/prompts/policy';
+import { nextPhase, type Phase, type PhaseEvent } from './machine';
 import { saveFigure, saveLesson } from '../storage/db';
-import type { LessonRecord } from '../memory/types';
+import type { SolutionRecord } from '../storage/records';
 
-export interface PendingAsk {
+/** A clarifying question waiting on the learner. */
+export interface Pending {
   kind: 'ask';
   question: AskQuestion;
   resolve: (a: AskAnswer) => void;
   askedAt: number;
 }
 
-export interface PendingQuiz {
-  kind: 'quiz';
-  questions: QuizQuestion[];
-  resolve: (o: QuizOutcome) => void;
-  askedAt: number;
-}
-
-export type Pending = PendingAsk | PendingQuiz;
-
 export interface SessionState {
   phase: Phase;
   status: string | null;
   plan: LessonPlan | null;
   pages: BoardModel['pages'];
-  /** Which step is currently being narrated. */
+  /** The step most recently written to the board. */
   currentStepId: string | null;
   pending: Pending | null;
   budget: BudgetSnapshot;
   error: ChalkError | null;
   ending: EndLessonIn | null;
-  exam: FinishExamIn | null;
   notes: { title: string; markdown: string; tags?: string[] }[];
   transcript: { stepId: string; say: string; at: number }[];
-  scriptedMode: boolean;
-  /**
-   * True once the model has failed to work the tool loop three turns running.
-   * The UI offers the reduced mode; it is never switched on behind the
-   * learner's back, because the difference matters (§17.4).
-   */
-  scriptedOffered: boolean;
   /** Turn number within the current agent, for the meter. */
   turn: number;
+  /**
+   * Where a raised hand has got to. `answering`: the solver is writing its
+   * answer. `waiting`: the answer is on the board and the solution is held
+   * until the learner says whether it made sense.
+   */
+  aside: 'none' | 'answering' | 'waiting';
+  /** Steps written as answers to a raised hand, not part of the solution. */
+  asideStepIds: string[];
 }
 
 export interface SessionOptions {
-  subject: SubjectId;
+  /** The learner's question, in their own words. May be empty when attached. */
   topic: string;
+  /** What they attached to it. Read by the reader only (§13). */
+  attachments?: Attachment[];
+  /**
+   * Where the board starts before the reader has settled the real subject and
+   * level from the question. The demo knows both up front.
+   */
+  subject: SubjectId;
   level: Level;
   provider: ProviderAdapter;
   adapterConfig: AdapterConfig;
   settings: Settings;
-  memory: LearnerStore;
-  materials: MaterialsStore;
   sandbox: SandboxPort;
-  reviewConcepts?: string[];
-  models: { planner: string; tutor: string; examiner: string; repairer: string };
+  /**
+   * Hold the model to the pace of the voice. With a screen attached, the
+   * model can write steps several times faster than they can be spoken; left
+   * alone it would finish the whole solution while the learner is still
+   * hearing step one, and a raised hand would land steps away from where
+   * they are. Off by default, because nothing acknowledges narration when
+   * there is no screen.
+   */
+  pacing?: boolean;
+  models: Record<AgentId, string>;
   contextWindow: number;
+  /** Figures that already exist, so a replayed board may place them (§18). */
+  knownFigures?: string[];
+  /** A replay: nothing new to save, so nothing is saved. */
+  ephemeral?: boolean;
 }
 
 export class Session {
   readonly id = uid('lesson');
-  /** Read by the UI to theme the board. Cheaper than threading it separately. */
-  readonly subject: SubjectId;
+  /** Read by the UI to theme the board. Settled by the reader from the question. */
+  subject: SubjectId;
+  level: Level;
   readonly topic: string;
-  readonly level: Level;
   readonly trace = new Trace();
   readonly board = new BoardModel();
 
@@ -134,7 +134,6 @@ export class Session {
 
   private plan: LessonPlan | null = null;
   private ending: EndLessonIn | null = null;
-  private exam: FinishExamIn | null = null;
   private pending: Pending | null = null;
   private status: string | null = null;
   private error: ChalkError | null = null;
@@ -144,14 +143,13 @@ export class Session {
   private figures = new Set<string>();
   private turn = 0;
   private startedAt = now();
-  private scriptedMode = false;
-  private scriptedOffered = false;
-  private toolWatch = new ToolCapabilityWatch();
 
-  /** Set when a check scores low, and consumed by the next tutor run. */
-  private remediation: string | null = null;
   /** Raised-hand question waiting to be injected into the next turn. */
   private interruption: string | null = null;
+  private aside: SessionState['aside'] = 'none';
+  private asideSteps = new Set<string>();
+  /** What to tell the solver once the learner has said whether the answer landed. */
+  private afterAside: string | null = null;
   private wrapUpSent = false;
   /** Consecutive board rejections on the current step, for §17.3. */
   private boardFailures = 0;
@@ -162,6 +160,7 @@ export class Session {
     this.subject = opts.subject;
     this.topic = opts.topic;
     this.level = opts.level;
+    for (const id of opts.knownFigures ?? []) this.figures.add(id);
     this.budget = new Budget(opts.settings.budget, {
       model: opts.models.tutor,
       providerId: opts.provider.id,
@@ -189,12 +188,11 @@ export class Session {
       budget: this.budget.snapshot(),
       error: this.error,
       ending: this.ending,
-      exam: this.exam,
       notes: this.notes,
       transcript: this.transcript,
-      scriptedMode: this.scriptedMode,
-      scriptedOffered: this.scriptedOffered,
       turn: this.turn,
+      aside: this.aside,
+      asideStepIds: [...this.asideSteps],
     };
   }
 
@@ -229,42 +227,38 @@ export class Session {
   }
 
   /* ---------------------------------------------------------------- *
-   * The lesson
+   * Solving a question
    * ---------------------------------------------------------------- */
 
   async start(): Promise<void> {
-    this.opts.memory.beginSession();
     this.transition({ t: 'start' });
 
     try {
-      await this.runPlanner();
+      await this.runReader();
       if (this.aborted) return;
-
-      await this.runTutor();
-      if (this.aborted) return;
-
-      if (this.phase === 'EXAMINING') {
-        await this.runExaminer();
-      }
+      await this.runSolver();
     } catch (err) {
       this.fail(err);
     } finally {
-      // A lesson is saved whatever happened to it. Losing a lesson in progress
+      // Whatever happened, what was written is saved. Losing work in progress
       // on any error is listed under "never acceptable" (§17.5).
       await this.persist();
       this.emit();
     }
   }
 
-  private async runPlanner(): Promise<void> {
-    const ctx = await this.promptContext();
-    const materials = await this.opts.materials.list();
-
+  /**
+   * The reader (§8.2): reads the question and anything attached, restates it
+   * in full, and plans the solution. The only agent that sees the attachments.
+   */
+  private async runReader(): Promise<void> {
+    const attachments = this.opts.attachments ?? [];
     const outcome = await runAgent(
-      this.agentConfig('planner', plannerPrompt(ctx), [
+      this.agentConfig('planner', readerPrompt(this.promptContext()), [
         {
           role: 'user',
-          content: plannerSeed(ctx, materials.length > 0, this.opts.reviewConcepts ?? []),
+          content: readerSeed(this.opts.topic, attachments.length),
+          ...(attachments.length ? { attachments } : {}),
         },
       ]),
       this.runContext('planner'),
@@ -273,80 +267,59 @@ export class Session {
     if (outcome.error) throw outcome.error;
 
     if (!this.plan) {
-      // The planner finished without committing a plan. Rather than stopping
-      // the learner's session over it, teach from a minimal plan built from
-      // what they asked for — a lesson from a thin plan beats no lesson.
-      this.plan = fallbackPlan(this.opts.topic, this.opts.level, this.opts.subject);
+      // The reader finished without committing a plan. Rather than stopping
+      // the session over it, solve from a minimal plan built from the question
+      // as typed — a solution from a thin plan beats none.
+      this.plan = fallbackPlan(this.opts.topic, this.level);
       this.trace.push({
         t: 'note',
-        message: 'The planner did not produce a plan, so a simple one was used instead.',
+        message: 'The question was not planned, so a simple plan was used instead.',
       });
     }
+
+    // The learner never picked a subject or a level: the question did.
+    if (this.plan.subject) this.subject = this.plan.subject;
+    this.level = this.plan.level;
 
     this.transition({ t: 'planned' });
   }
 
-  private async runTutor(): Promise<void> {
-    const ctx = await this.promptContext();
+  /** The solver (§8.3): works the question through on the board. */
+  private async runSolver(): Promise<void> {
     const plan = this.plan;
     if (!plan) return;
 
-    const seed: { role: 'user'; content: string }[] = [
-      { role: 'user', content: tutorSeed(plan, this.opts.topic) },
-    ];
-
     const outcome = await runAgent(
-      this.agentConfig('tutor', tutorPrompt(ctx), seed),
+      this.agentConfig('tutor', solverPrompt(this.promptContext()), [
+        { role: 'user', content: solverSeed(plan, this.opts.topic) },
+      ]),
       this.runContext('tutor'),
     );
+    // Kept so a question asked after the end is answered by a solver that
+    // remembers the whole solution, not one starting cold.
+    this.solverHistory = outcome.messages;
 
     if (outcome.error && outcome.error.kind !== 'BudgetError') throw outcome.error;
 
     if (!this.ending) {
-      // Out of turns or budget: close the lesson deliberately rather than
-      // leaving the learner on a half-drawn board.
+      // Out of turns or budget: close deliberately rather than leaving the
+      // learner on a half-drawn board.
       this.ending = {
-        summary: 'We ran out of time for this session, but the board has everything we covered.',
+        summary: 'This ran out of room before the end, but the board has everything worked out so far.',
         objectivesMet: [],
         objectivesMissed: plan.objectives.map((o) => o.id),
         nextTopics: [],
-        runExam: this.board.stepCount > 2,
       };
-      this.transition({ t: 'lesson_ended', runExam: this.ending.runExam });
+      this.transition({ t: 'solved' });
     }
-  }
-
-  private async runExaminer(): Promise<void> {
-    const ctx = await this.promptContext();
-    const plan = this.plan;
-    if (!plan) return;
-
-    const outcome = await runAgent(
-      this.agentConfig('examiner', examinerPrompt(ctx, this.board.historySummary()), [
-        {
-          role: 'user',
-          content: examinerSeed(
-            plan,
-            this.ending?.objectivesMet ?? [],
-            this.ending?.objectivesMissed ?? [],
-          ),
-        },
-      ]),
-      this.runContext('examiner'),
-    );
-
-    if (outcome.error && outcome.error.kind !== 'BudgetError') {
-      this.trace.push({ t: 'error', error: outcome.error.toJSON() });
-    }
-    if (!this.exam) this.transition({ t: 'exam_finished' });
   }
 
   /**
    * Counts board rejections and escalates on the second (§17.3).
    *
-   * The first failure goes back to the tutor, which usually fixes its own
-   * mistake for free. The second means the tutor cannot see what is wrong, so
-   * a cheap dedicated model gets one attempt. If that fails too, the step's
+   * The first failure goes back to the solver, which usually fixes its own
+   * mistake for free. The second means it cannot see what is wrong, so a
+   * cheap dedicated model gets one attempt. If that fails too, the step's
    * operations are dropped and the narration still reaches the learner — they
    * get the explanation either way.
    */
@@ -371,7 +344,7 @@ export class Session {
   }
 
   /**
-   * The repairer (§8.5). Invoked by the runtime, never by another agent, after
+   * The repairer (§8.4). Invoked by the runtime, never by another agent, after
    * two validation failures on the same step.
    */
   private async runRepairer(ops: unknown, problems: string[]): Promise<BoardOp[] | null> {
@@ -393,19 +366,17 @@ export class Session {
 
   /**
    * What every agent prompt is built from, including which capabilities are
-   * actually available — a tutor told it has a sandbox when it does not will
+   * actually available — a solver told it has a sandbox when it does not will
    * offer to run code and then fail in front of the learner (§17.4).
    */
-  private async promptContext(): Promise<PromptContext> {
-    const materials = await this.opts.materials.list();
+  private promptContext(): PromptContext {
     return {
-      subject: this.opts.subject,
-      level: this.opts.level,
+      subject: this.subject,
+      level: this.level,
       topic: this.opts.topic,
       sandbox: this.opts.settings.sandboxEnabled && this.opts.sandbox.available(),
       sandboxReason: this.opts.sandbox.unavailableReason() || undefined,
       wiki: this.opts.settings.wikiEnabled,
-      materials: materials.length > 0,
     };
   }
 
@@ -413,7 +384,11 @@ export class Session {
    * Agent plumbing
    * ---------------------------------------------------------------- */
 
-  /** Capabilities unavailable this session, withheld from every agent. */
+  /**
+   * Capabilities unavailable this session, withheld from every agent. A tool
+   * that is never offered is never called, and is also that much less prompt
+   * to pay for on every turn.
+   */
   private excludedTools(): ReadonlySet<string> {
     const exclude = new Set<string>();
     if (!this.opts.settings.wikiEnabled) exclude.add('wiki_lookup');
@@ -426,11 +401,9 @@ export class Session {
   private agentConfig(
     id: AgentId,
     system: string,
-    seedMessages: { role: 'user'; content: string }[],
+    seedMessages: Extract<AgentMessage, { role: 'user' }>[],
   ): AgentConfig {
     const spec = AGENT_SPECS[id];
-    const exclude = this.excludedTools();
-
     return {
       id,
       model: this.opts.models[id],
@@ -439,7 +412,7 @@ export class Session {
       maxTokens: spec.maxTokens,
       temperature: spec.temperature,
       seedMessages,
-      exclude,
+      exclude: this.excludedTools(),
     };
   }
 
@@ -456,24 +429,12 @@ export class Session {
         contextWindow: this.opts.contextWindow,
         planSummary: this.plan ? summarizePlan(this.plan) : undefined,
         boardSummary: this.board.historySummary(),
-        masteryDeltas: [],
       },
       injectBeforeTurn: agent === 'tutor' ? () => this.takeInjection() : undefined,
-      onTurnQuality: (ok) => {
-        this.toolWatch.record(ok);
-        if (this.toolWatch.shouldOfferScriptedMode && !this.scriptedOffered) {
-          this.scriptedOffered = true;
-          this.trace.push({
-            t: 'note',
-            message:
-              'This model has not managed a valid tool call in three turns. Offering the reduced scripted mode.',
-          });
-          this.emit();
-        }
-      },
       onEvent: () => {
         this.turn = this.budget.snapshot().turns;
       },
+      beforeTurn: () => this.waitForPlayback(),
     };
   }
 
@@ -482,15 +443,13 @@ export class Session {
       agent,
       excluded: this.excludedTools(),
       sessionId: this.id,
-      subject: this.opts.subject,
+      subject: this.subject,
       signal: this.controller.signal,
       trace: this.trace,
       settings: this.opts.settings,
       board: this.boardPort(),
       learner: this.learnerPort(),
       sandbox: this.figureStoringSandbox(),
-      memory: this.opts.memory,
-      materials: this.opts.materials,
       notes: this.notesPort(),
       status: (m) => this.setStatus(m),
       boardRejected: (ops, problems) => this.onBoardRejected(ops, problems),
@@ -507,6 +466,14 @@ export class Session {
       writeStep: (req: TeachStepRequest) => {
         const outcome = this.board.write(req);
         this.currentStepId = outcome.stepId;
+        if (this.aside === 'answering') {
+          // Marked before the screen hears of the step, so it is played as an
+          // answer — straight away — rather than queued behind the solution.
+          this.asideSteps.add(outcome.stepId);
+          // With a screen attached the solution now waits for the learner.
+          // With none, nobody could ever release it, so it carries on.
+          this.aside = this.opts.pacing ? 'waiting' : 'none';
+        }
         this.transcript = [
           ...this.transcript,
           { stepId: outcome.stepId, say: req.say, at: now() },
@@ -525,6 +492,10 @@ export class Session {
     };
   }
 
+  /**
+   * The suspension port. A clarifying question genuinely waits on a human —
+   * no timeout, and never a fabricated answer (§17.5).
+   */
   private learnerPort(): LearnerPort {
     return {
       ask: (question, signal) =>
@@ -547,52 +518,9 @@ export class Session {
           signal.addEventListener(
             'abort',
             () => {
-              if (this.pending?.kind === 'ask') {
+              if (this.pending) {
                 this.pending = null;
                 resolve({ answer: '', elapsedMs: now() - askedAt, skipped: true });
-              }
-            },
-            { once: true },
-          );
-        }),
-
-      quiz: (questions, signal) =>
-        new Promise<QuizOutcome>((resolve) => {
-          this.previousPhase = this.phase;
-          this.transition({ t: 'ask_started' });
-          const askedAt = now();
-
-          const settle = (outcome: QuizOutcome): void => {
-            this.pending = null;
-            // No answers means no evidence, so no score reaches the phase
-            // machine and the lesson carries on rather than remediating.
-            this.transition(
-              outcome.answered > 0
-                ? { t: 'ask_finished', score: outcome.score }
-                : { t: 'ask_finished' },
-            );
-            resolve(outcome);
-          };
-
-          this.pending = { kind: 'quiz', questions, resolve: settle, askedAt };
-          this.emit();
-
-          signal.addEventListener(
-            'abort',
-            () => {
-              if (this.pending?.kind === 'quiz') {
-                this.pending = null;
-                resolve({
-                  score: 0,
-                  answered: 0,
-                  perQuestion: questions.map((q) => ({
-                    chosen: -1,
-                    correct: q.answer,
-                    concept: q.concept,
-                    skipped: true,
-                  })),
-                  elapsedMs: now() - askedAt,
-                });
               }
             },
             { once: true },
@@ -649,40 +577,14 @@ export class Session {
         this.emit();
         break;
 
-      case 'end_lesson': {
+      case 'end_lesson':
         this.ending = event.payload as EndLessonIn;
-        this.transition({ t: 'lesson_ended', runExam: this.ending.runExam });
+        this.transition({ t: 'solved' });
         break;
-      }
-
-      case 'finish_exam':
-        this.exam = event.payload as FinishExamIn;
-        this.transition({ t: 'exam_finished' });
-        break;
-
-      case 'check_scored': {
-        // The remediation instruction is composed here, in code, from the
-        // score — the model is told what is happening, not asked.
-        if (event.score < 1 && this.phase !== 'EXAMINING' && this.previousPhase !== 'EXAMINING') {
-          if (event.score < 0.8) {
-            this.remediation = remediationInstruction(event.score, event.weak);
-            if (event.score < PREREQUISITE_THRESHOLD && event.onFail) {
-              this.remediation += `\n\nThe tutor's own note for this case was: ${event.onFail}`;
-            }
-          }
-        }
-        break;
-      }
 
       case 'step_written':
         this.currentStepId = event.stepId;
         this.boardFailures = 0;
-        // The remediation instruction has been given and acted on, so the
-        // lesson is teaching again. Leaving the phase at REMEDIATING would
-        // keep telling the learner it is backing up long after it stopped.
-        if (this.phase === 'REMEDIATING' && this.remediation === null) {
-          this.transition({ t: 'resume' });
-        }
         this.emit();
         break;
 
@@ -696,55 +598,80 @@ export class Session {
    * Learner actions
    * ---------------------------------------------------------------- */
 
+  /** Answer the clarifying question, or decline to. */
   answerAsk(answer: string, skipped = false): void {
     const pending = this.pending;
-    if (pending?.kind !== 'ask') return;
+    if (!pending) return;
     pending.resolve({ answer, elapsedMs: now() - pending.askedAt, skipped });
   }
 
-  answerQuiz(chosen: number[]): void {
-    const pending = this.pending;
-    if (pending?.kind !== 'quiz') return;
+  private solverHistory: AgentMessage[] = [];
+  private followingUp = false;
 
-    const perQuestion = pending.questions.map((q, i) => {
-      const pick = chosen[i] ?? -1;
-      return { chosen: pick, correct: q.answer, concept: q.concept, skipped: pick < 0 };
-    });
-    const answered = perQuestion.filter((p) => !p.skipped);
-    const right = answered.filter((p) => p.chosen === p.correct).length;
-
-    pending.resolve({
-      // A skipped question is not a wrong answer, so it is left out of the
-      // denominator rather than counted against the learner (§9.2).
-      score: answered.length ? right / answered.length : 0,
-      answered: answered.length,
-      perQuestion,
-      elapsedMs: now() - pending.askedAt,
-    });
+  /**
+   * A question asked after the solution has finished. The solver is run again
+   * from where it ended, answers, waits to hear whether that made sense, and
+   * closes again.
+   */
+  private async followUp(): Promise<void> {
+    if (this.followingUp || !this.plan) return;
+    this.followingUp = true;
+    try {
+      const outcome = await runAgent(
+        {
+          ...this.agentConfig('tutor', solverPrompt(this.promptContext()), []),
+          seedMessages: this.solverHistory,
+        },
+        this.runContext('tutor'),
+      );
+      this.solverHistory = outcome.messages;
+      if (outcome.error && outcome.error.kind !== 'BudgetError') throw outcome.error;
+      // Whatever happened, the session ends where it was: finished. If the
+      // run stopped before it could even take the question — the budget was
+      // already spent — the phase is still "interrupted" and has to be walked
+      // back through.
+      this.aside = 'none';
+      this.interruption = null;
+      this.afterAside = null;
+      this.transition({ t: 'resume' });
+      this.transition({ t: 'solved' });
+    } catch (err) {
+      this.fail(err);
+    } finally {
+      this.followingUp = false;
+      await this.persist();
+      this.emit();
+    }
   }
 
   /** Raise hand (§15). Injected as the next user message. */
   raiseHand(question: string): void {
+    const finished = this.phase === 'REVIEW';
     this.interruption = question;
+    this.afterAside = null;
+    this.aside = 'answering';
     this.transition({ t: 'raise_hand' });
+    if (finished) void this.followUp();
+    // Their question should not wait for the current step to finish playing.
+    this.releasePlayback();
   }
 
   get pendingInterruption(): string | null {
     return this.interruption;
   }
 
-  /** Extra instructions the loop should inject before the tutor's next turn. */
+  /** Extra instructions the loop should inject before the solver's next turn. */
   takeInjection(): string | null {
     if (this.interruption) {
       const q = this.interruption;
       this.interruption = null;
       this.transition({ t: 'resume' });
-      return `The learner raised their hand and asked: "${q}"\n\nAnswer it as an aside in at most two steps, say you are returning to the lesson, and carry on from where you were.`;
+      return asideInstruction(q);
     }
-    if (this.remediation) {
-      const r = this.remediation;
-      this.remediation = null;
-      return r;
+    if (this.afterAside) {
+      const note = this.afterAside;
+      this.afterAside = null;
+      return note;
     }
     if (this.budget.shouldWrapUp && !this.wrapUpSent) {
       this.wrapUpSent = true;
@@ -753,8 +680,76 @@ export class Session {
     return null;
   }
 
+  /**
+   * The learner says whether the answer to their question made sense (§15).
+   *
+   * This is the learner's call and nobody else's: the solver is not allowed to
+   * decide for itself that it was understood and press on, and it is not
+   * allowed to quiz them to find out. Understood means the solution resumes
+   * from exactly where it stopped. Not understood means the same point again,
+   * a different way, and then they are asked again.
+   */
+  resumeAfterAside(understood: boolean): void {
+    if (this.aside !== 'waiting') return;
+    if (understood) {
+      this.aside = 'none';
+      this.afterAside = this.followingUp ? CLOSE_AGAIN_INSTRUCTION : RESUME_INSTRUCTION;
+    } else {
+      this.aside = 'answering';
+      this.afterAside = EXPLAIN_AGAIN_INSTRUCTION;
+    }
+    this.emit();
+    this.releasePlayback();
+  }
+
+  /* ---------------------------------------------------------------- *
+   * Pacing: the model stays at most one step ahead of the voice (§14)
+   * ---------------------------------------------------------------- */
+
+  private narrated = 0;
+  private playbackWaiters: (() => void)[] = [];
+
+  /** The screen calls this each time a step's narration finishes. */
+  stepNarrated(): void {
+    this.narrated += 1;
+    this.releasePlayback();
+  }
+
+  private releasePlayback(): void {
+    const waiters = this.playbackWaiters;
+    this.playbackWaiters = [];
+    for (const resume of waiters) resume();
+  }
+
+  /**
+   * Resolves once the voice is within one step of the board. One step of
+   * lookahead means the next step is ready the moment the current one ends,
+   * with no silence between them, and no more than that is ever wasted if the
+   * learner interrupts.
+   */
+  private async waitForPlayback(): Promise<void> {
+    if (!this.opts.pacing) return;
+    const held = (): boolean =>
+      // An answer is on the board and the learner has not yet said whether it
+      // made sense: nothing more is written until they do.
+      this.aside === 'waiting' ||
+      // Otherwise the usual rule, which a waiting question or instruction
+      // overrides so that it is acted on at once.
+      (this.board.stepCount - this.narrated > 1 &&
+        this.interruption === null &&
+        this.afterAside === null);
+    while (held() && !this.controller.signal.aborted) {
+      await new Promise<void>((resume) => this.playbackWaiters.push(resume));
+    }
+  }
+
+  /* ---------------------------------------------------------------- *
+   * Stopping
+   * ---------------------------------------------------------------- */
+
   abort(): void {
     this.controller.abort(asChalkError(new DOMException('Aborted', 'AbortError')));
+    this.releasePlayback();
     this.transition({ t: 'abort' });
     void this.persist();
   }
@@ -772,141 +767,30 @@ export class Session {
    * ---------------------------------------------------------------- */
 
   private async persist(): Promise<void> {
+    if (this.opts.ephemeral) return;
     if (this.board.stepCount === 0 && !this.plan) return;
 
-    const records = await this.opts.memory.concepts(this.opts.memory.touchedConcepts());
     const usage = this.budget.snapshot();
-
-    const record: LessonRecord = {
+    const record: SolutionRecord = {
       id: this.id,
-      subject: this.opts.subject,
+      subject: this.subject,
       topic: this.opts.topic,
       title: this.plan?.title ?? this.opts.topic,
-      level: this.opts.level,
+      level: this.level,
       startedAt: this.startedAt,
       endedAt: now(),
       plan: this.plan,
       pages: this.board.pages,
       transcript: this.transcript,
       notes: this.notes,
-      exam: this.exam
-        ? {
-            score: this.exam.score,
-            strengths: this.exam.strengths,
-            gaps: this.exam.gaps,
-            verdict: this.exam.verdict,
-          }
-        : undefined,
-      masteryDiff: this.opts.memory.masteryDiff(records),
+      ending: this.ending ?? undefined,
       tokens: { input: usage.inputTokens, output: usage.outputTokens },
     };
 
     await saveLesson(record);
-
-    const profile = await this.opts.memory.profile();
-    await this.opts.memory.updateProfile({
-      totals: {
-        lessons: profile.totals.lessons + 1,
-        minutes: profile.totals.minutes + Math.round((now() - this.startedAt) / 60_000),
-      },
-    });
   }
 
-  /** Used by the review screen and the trace export. */
-  async masteryDiff(): Promise<{ concept: string; before: number; after: number }[]> {
-    const records = await this.opts.memory.concepts(this.opts.memory.touchedConcepts());
-    return this.opts.memory.masteryDiff(records);
-  }
-
-  setScriptedMode(on: boolean): void {
-    this.scriptedMode = on;
-    this.emit();
-  }
-
-  /**
-   * Scripted mode — rung 4 of the degradation ladder (§17.4).
-   *
-   * One call, an NDJSON lesson, no branching and no interruption. It exists
-   * for models that cannot work the tool loop at all, where the alternative is
-   * not a better lesson but no lesson. The learner has to have asked for it:
-   * silently dropping to this would hide exactly the difference that makes the
-   * rest of the product worth building.
-   */
-  async runScripted(): Promise<void> {
-    this.scriptedMode = true;
-    this.scriptedOffered = false;
-    this.setStatus('Asking for the whole lesson in one go');
-
-    const events = this.opts.provider.run(
-      {
-        model: this.opts.models.tutor,
-        system: scriptedPrompt(this.opts.topic, BOARD_CONTRACT),
-        messages: [{ role: 'user', content: `Teach: ${this.opts.topic}` }],
-        // No tools at all — that is the whole point of this mode.
-        tools: [],
-        maxTokens: 8192,
-        temperature: 0.6,
-      },
-      this.opts.adapterConfig,
-      this.controller.signal,
-    );
-
-    let raw = '';
-    try {
-      for await (const event of events) {
-        if (event.t === 'text') raw += event.delta;
-        else if (event.t === 'usage') this.budget.add(event);
-        else if (event.t === 'error') throw event.error;
-      }
-    } catch (err) {
-      this.fail(err);
-      return;
-    }
-
-    const lesson = parseScripted(raw, this.opts.topic);
-
-    if (lesson.dropped.length) {
-      this.trace.push({
-        t: 'note',
-        message: `${lesson.dropped.length} line(s) of the scripted lesson could not be read and were skipped.`,
-      });
-    }
-
-    if (lesson.steps.length === 0) {
-      this.fail(
-        loopError(
-          'This model could not produce a usable lesson, even in the reduced mode. Try a larger model in Settings.',
-        ),
-      );
-      return;
-    }
-
-    for (const step of lesson.steps) {
-      this.controller.signal.throwIfAborted();
-      this.board.write({ say: step.say, ops: step.ops, clear: step.clear });
-      const written = this.board.lastStep();
-      if (written) {
-        this.currentStepId = written.id;
-        this.transcript = [
-          ...this.transcript,
-          { stepId: written.id, say: step.say, at: now() },
-        ];
-      }
-      this.emit();
-    }
-
-    this.ending = {
-      summary: 'That is the lesson. This was the reduced mode, so there were no questions.',
-      objectivesMet: [],
-      objectivesMissed: [],
-      nextTopics: [],
-      runExam: false,
-    };
-    this.transition({ t: 'lesson_ended', runExam: false });
-    await this.persist();
-  }
-
-  /** Referenced by the repairer path; kept public for the integration tests. */
+  /** The repairer path, public for the integration tests. */
   repair(ops: unknown, problems: string[]): Promise<BoardOp[] | null> {
     return this.runRepairer(ops, problems);
   }
@@ -916,37 +800,59 @@ export class Session {
  * Helpers
  * ------------------------------------------------------------------ */
 
+/**
+ * What the solver is told when a hand goes up. One step, not two: the learner
+ * is asked afterwards whether it made sense, and can ask for it again, so
+ * there is no need to guess how much is enough.
+ */
+function asideInstruction(question: string): string {
+  return `The learner stopped you and asked: "${question}"
+
+Answer exactly this, in ONE teach_step, and do not carry on with the solution in that step.
+
+- Start from what they asked, not from where you were. If the question shows what they have misunderstood, address that directly.
+- Use the board: point at the line they are asking about, or work a tiny concrete example. Do not just say the same thing again in other words.
+- Keep it short and complete. They will be asked whether it made sense, and you will be told.
+
+After that step, wait. You will be told whether to explain again or to go back to the solution.`;
+}
+
+const RESUME_INSTRUCTION = `The learner says that makes sense now. Go back to the solution and carry on from exactly where you stopped: the next thing you were about to do. Say in a few words that you are picking it back up. Do not repeat steps that are already on the board, and do not start again.`;
+
+const CLOSE_AGAIN_INSTRUCTION = `The learner says that makes sense now. The solution was already finished before they asked, so there is nothing to go back to: call end_lesson again, with the same summary as before. Do not write another step.`;
+
+const EXPLAIN_AGAIN_INSTRUCTION = `The learner says that did not clear it up. Explain the same point again in ONE teach_step, and do it differently this time: if you used algebra, use a picture or numbers; if you were general, be concrete; go one step more basic than you did. Do not repeat your last explanation, and do not carry on with the solution. They will be asked again whether it made sense.`;
+
 function summarizePlan(plan: LessonPlan): string {
-  const objectives = plan.objectives.map((o) => `${o.id}: ${o.text}`).join('; ');
-  return `${plan.title} (${plan.level}). Objectives — ${objectives}.`;
+  const stages = plan.objectives.map((o) => `${o.id}: ${o.text}`).join('; ');
+  return `${plan.title} (${plan.level}). Stages — ${stages}.`;
 }
 
 /**
- * A minimal plan, used only when the planner produced none. It is deliberately
- * plain: the point is that the learner still gets taught, not that this stands
- * in for planning.
+ * A minimal plan, used only when the reader produced none. It is deliberately
+ * plain: the point is that the learner still gets their question worked
+ * through, not that this stands in for reading it properly.
  */
-function fallbackPlan(topic: string, level: Level, _subject: SubjectId): LessonPlan {
+function fallbackPlan(question: string, level: Level): LessonPlan {
   return {
     id: uid('plan'),
     createdAt: now(),
-    title: topic,
+    title: question.slice(0, 80) || 'Your question',
     level,
+    problem: question,
     objectives: [
-      { id: 'obj-1', text: `The learner can state what ${topic} is and why it matters` },
-      { id: 'obj-2', text: `The learner can work through one concrete example of ${topic}` },
-      { id: 'obj-3', text: `The learner can recognise where ${topic} applies` },
+      { id: 'obj-1', text: 'Set out what is given and what is asked' },
+      { id: 'obj-2', text: 'Work it through step by step' },
+      { id: 'obj-3', text: 'State the answer and check it' },
     ],
     prerequisites: [],
     steps: [
-      { objective: 'obj-1', representation: 'worked-example', note: 'a concrete instance first' },
-      { objective: 'obj-1', representation: 'derivation', note: 'generalise from the instance' },
-      { objective: 'obj-2', representation: 'check', note: 'check it landed' },
-      { objective: 'obj-2', representation: 'worked-example', note: 'a harder case' },
-      { objective: 'obj-3', representation: 'recap', note: 'where this shows up' },
+      { objective: 'obj-1', representation: 'worked-example', note: 'what is given, what is asked' },
+      { objective: 'obj-2', representation: 'derivation', note: 'the working' },
+      { objective: 'obj-3', representation: 'recap', note: 'the answer, with a check' },
     ],
-    estimatedMinutes: 10,
+    estimatedMinutes: 6,
   };
 }
 
-export type { Phase, Pace };
+export type { Phase };

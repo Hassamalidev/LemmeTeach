@@ -35,6 +35,7 @@ function readsLikeEnglish(message: string): void {
 describe('the taxonomy', () => {
   const cases: [string, ChalkError][] = [
     ['AuthError', errorFromResponse('Anthropic', 401, '{}')],
+    ['CreditError', errorFromResponse('OpenRouter', 402, '{}')],
     ['RateLimitError', errorFromResponse('OpenAI', 429, '{}')],
     ['OverloadedError', errorFromResponse('Anthropic', 529, '{}')],
     ['NetworkError', errorFromFetchFailure('Gemini', new TypeError('Failed to fetch'))],
@@ -63,6 +64,8 @@ describe('the taxonomy', () => {
     expect(errorFromResponse('OpenAI', 401, '{}').retryable).toBe(false);
     expect(errorFromResponse('OpenAI', 403, '{}').retryable).toBe(false);
     expect(refusalError('x').retryable).toBe(false);
+    // Spent credit stays spent until the next payment.
+    expect(errorFromResponse('OpenRouter', 402, '{}').retryable).toBe(false);
     expect(budgetError('x').retryable).toBe(false);
   });
 });
@@ -71,6 +74,15 @@ describe('mapping an HTTP failure', () => {
   it('names the provider, so it is clear which one refused', () => {
     expect(errorFromResponse('OpenRouter', 401, '{}').message).toContain('OpenRouter');
     expect(errorFromResponse('Gemini', 529, '{}').message).toContain('Gemini');
+  });
+
+  it('reads a key that has hit its spending cap as spent credit, not a bad key', () => {
+    const capped = errorFromResponse('OpenRouter', 403, '{"error":{"message":"Key limit exceeded"}}');
+    expect(capped.kind).toBe('CreditError');
+    expect(capped.message).toMatch(/credit/i);
+    expect(capped.message).not.toContain('OpenRouter');
+    // A plain 403 is still a rejected key.
+    expect(errorFromResponse('OpenRouter', 403, '{}').kind).toBe('AuthError');
   });
 
   it('honours retry-after', () => {

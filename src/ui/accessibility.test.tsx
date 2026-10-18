@@ -19,10 +19,15 @@ import { App } from '../App';
 import { Board } from '../board/Board';
 import { BoardModel } from '../board/page';
 import { AskPanel } from './AskPanel';
-import { QuizPanel } from './QuizPanel';
-import { RaiseHand } from './RaiseHand';
+import { Composer } from './Composer';
 import { Shortcuts } from './Shortcuts';
 import { Meter } from './Meter';
+import { Activate } from './Activate';
+import { OwnKey } from './OwnKey';
+import { PlanLine } from './PlanLine';
+import { Solve } from './Solve';
+import { DEFAULT_SETTINGS } from '../storage/settings';
+import { PLANS } from '../../shared/plans';
 import { FIXTURE_LESSONS } from '../fixtures';
 import { validateOps } from '../board/validate';
 
@@ -63,12 +68,61 @@ function describeViolations(violations: axe.Result[]): string {
 }
 
 describe('axe', () => {
-  it('Setup has no violations', async () => {
+  // The landing page is the largest tree audited here; under a full parallel
+  // run it needs longer than the default, and a timeout would leave axe
+  // running and fail every test after it.
+  it('the landing page has no violations', async () => {
     const violations = await auditing(<App />);
+    expect(violations, describeViolations(violations)).toEqual([]);
+  }, 60_000);
+
+  it('the question box has no violations, in the demo and for a subscriber', async () => {
+    const common = {
+      settings: DEFAULT_SETTINGS,
+      credit: null,
+      onUpdateSettings: () => {},
+      onSolve: () => {},
+      onSeePlans: () => {},
+      onReplay: () => {},
+      onOwnKey: () => {},
+      onOpenSettings: () => {},
+    };
+    const demo = await auditing(<Solve {...common} plan={null} />);
+    expect(demo, describeViolations(demo)).toEqual([]);
+
+    const plan = PLANS[0];
+    if (!plan) throw new Error('no plans');
+    const subscriber = await auditing(
+      <Solve {...common} plan={plan} credit={{ limitUsd: plan.creditUsd, remainingUsd: 2 }} />,
+    );
+    expect(subscriber, describeViolations(subscriber)).toEqual([]);
+  }, 30_000);
+
+  it('the activation screen has no violations', async () => {
+    const violations = await auditing(<Activate onDone={() => {}} onBack={() => {}} onOwnKey={() => {}} />);
     expect(violations, describeViolations(violations)).toEqual([]);
   });
 
-  it('a question panel has no violations', async () => {
+  it('the own-key screen has no violations', async () => {
+    const violations = await auditing(<OwnKey onDone={() => {}} onBack={() => {}} />);
+    expect(violations, describeViolations(violations)).toEqual([]);
+  });
+
+  it('the plan line has no violations', async () => {
+    const plan = PLANS[0];
+    if (!plan) throw new Error('no plans');
+    const violations = await auditing(
+      <PlanLine
+        plan={plan}
+        credit={{ limitUsd: plan.creditUsd, remainingUsd: 0.2 }}
+        quality="standard"
+        onSeePlans={() => {}}
+      />,
+    );
+    expect(violations, describeViolations(violations)).toEqual([]);
+  });
+
+  it('a clarifying question has no violations', async () => {
     const violations = await auditing(
       <AskPanel
         question={{
@@ -94,33 +148,20 @@ describe('axe', () => {
     expect(violations, describeViolations(violations)).toEqual([]);
   });
 
-  it('a scored check has no violations', async () => {
+  it('the box to ask from has no violations', async () => {
     const violations = await auditing(
-      <QuizPanel
-        questions={[
-          {
-            q: 'Which quantity is conserved in an elastic collision?',
-            options: ['Momentum only', 'Kinetic energy only', 'Both'],
-            answer: 2,
-            why: 'Elastic means kinetic energy is conserved as well as momentum.',
-            concept: 'elastic-collision',
-          },
-          {
-            q: 'What does a catalyst change?',
-            options: ['The position of equilibrium', 'How fast equilibrium is reached'],
-            answer: 1,
-            why: 'It speeds both directions equally.',
-            concept: 'catalyst',
-          },
-        ]}
-        onSubmit={() => {}}
+      <Composer
+        disabled={false}
+        engaged
+        placeholder="Ask anything."
+        focusSignal={0}
+        controls={<button aria-label="Pause">p</button>}
+        prompt={<strong>Did that answer your question?</strong>}
+        onEngage={() => {}}
+        onRelease={() => {}}
+        onAsk={() => {}}
       />,
     );
-    expect(violations, describeViolations(violations)).toEqual([]);
-  });
-
-  it('raise hand has no violations', async () => {
-    const violations = await auditing(<RaiseHand onAsk={() => {}} onCancel={() => {}} />);
     expect(violations, describeViolations(violations)).toEqual([]);
   });
 
@@ -137,7 +178,9 @@ describe('axe', () => {
           outputTokens: 8_000,
           limits: { inputTokens: 120_000, outputTokens: 30_000 },
           fraction: 0.35,
+          cachedInputTokens: 30_000,
           estimatedCostUsd: 0.24,
+          costIsExact: false,
           warned: false,
           exhausted: false,
           turns: 11,

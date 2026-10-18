@@ -1,16 +1,13 @@
 /**
- * Review (§15.5).
+ * Review (§15).
  *
- * No model calls here — the exam result, what actually moved in the record and
- * why, the notes, and the exports. The mastery diff is the part worth getting
- * right: it is the only place a learner sees that the system's picture of them
- * changed, and why.
+ * No model calls here: the summary of what was solved, the worked solution to
+ * copy or download, and the way back to the question box.
  */
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { Session } from '../orchestrator/session';
 import type { SubjectId } from '../core/types';
 import { SUBJECT_ACCENTS } from '../core/types';
-import { masteryLabel } from '../memory/concepts';
 
 export function Review({
   session,
@@ -24,12 +21,7 @@ export function Review({
   onAgain: () => void;
 }): JSX.Element {
   const state = session.state;
-  const [diff, setDiff] = useState<{ concept: string; before: number; after: number }[]>([]);
   const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    void session.masteryDiff().then(setDiff);
-  }, [session]);
 
   const accent = SUBJECT_ACCENTS[subject];
   const markdown = notesMarkdown(state.plan?.title ?? session.topic, state.notes);
@@ -45,76 +37,15 @@ export function Review({
           <div className="notice notice-error">
             <strong>{state.error.message}</strong>
             <div className="small dim" style={{ marginTop: 6 }}>
-              Everything taught before that point was saved.
+              Everything written before that point was saved.
             </div>
           </div>
-        )}
-
-        {state.exam && (
-          <section style={{ marginBottom: 32 }}>
-            <h2>The check</h2>
-            <p style={{ fontSize: 18 }}>{state.exam.verdict}</p>
-            <div className="row" style={{ alignItems: 'flex-start', gap: 32 }}>
-              {state.exam.strengths.length > 0 && (
-                <div style={{ flex: 1, minWidth: 220 }}>
-                  <h3>Solid</h3>
-                  <ul style={{ paddingLeft: 18 }}>
-                    {state.exam.strengths.map((s, i) => (
-                      <li key={i} style={{ marginBottom: 4 }}>
-                        {s}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {state.exam.gaps.length > 0 && (
-                <div style={{ flex: 1, minWidth: 220 }}>
-                  <h3>Worth another look</h3>
-                  <ul style={{ paddingLeft: 18 }}>
-                    {state.exam.gaps.map((g, i) => (
-                      <li key={i} style={{ marginBottom: 4 }}>
-                        {g}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          </section>
-        )}
-
-        {diff.length > 0 && (
-          <section style={{ marginBottom: 32 }}>
-            <h2>What moved</h2>
-            <div>
-              {diff.map((d) => {
-                const delta = d.after - d.before;
-                return (
-                  <div key={d.concept} className="diff-row">
-                    <span>{d.concept.replace(/-/g, ' ')}</span>
-                    <div className="bar">
-                      <span style={{ width: `${Math.round(d.after * 100)}%`, background: accent }} />
-                    </div>
-                    <span className={delta >= 0 ? 'delta-up' : 'delta-down'}>
-                      {delta >= 0 ? '+' : ''}
-                      {Math.round(delta * 100)}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-            <p className="dim small" style={{ marginTop: 10 }}>
-              These are blended with what was already on record, not overwritten — one lesson
-              moves a concept part of the way, never all of it. Now at{' '}
-              {diff.map((d) => `${d.concept.replace(/-/g, ' ')} ${masteryLabel(d.after)}`).join(', ')}.
-            </p>
-          </section>
         )}
 
         {state.notes.length > 0 && (
           <section style={{ marginBottom: 32 }}>
             <div className="row" style={{ justifyContent: 'space-between' }}>
-              <h2>Your notes</h2>
+              <h2>The worked solution</h2>
               <div className="row">
                 <button
                   className="btn"
@@ -127,7 +58,7 @@ export function Review({
                 >
                   {copied ? 'Copied' : 'Copy as Markdown'}
                 </button>
-                <button className="btn" onClick={() => download(markdown, state.plan?.title ?? 'lesson')}>
+                <button className="btn" onClick={() => download(markdown, state.plan?.title ?? 'solution')}>
                   Download
                 </button>
               </div>
@@ -157,11 +88,11 @@ export function Review({
         <hr />
 
         <div className="row">
-          <button className="btn btn-primary" onClick={onHome}>
-            Done
+          <button className="btn btn-primary" onClick={onAgain}>
+            Solve another question
           </button>
-          <button className="btn" onClick={onAgain}>
-            Another lesson
+          <button className="btn" onClick={onHome}>
+            Done
           </button>
           <button
             className="btn-quiet"

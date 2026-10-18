@@ -25,7 +25,9 @@ export function Meter({ budget }: { budget: BudgetSnapshot }): JSX.Element {
         <span className={state} style={{ width: `${pct}%` }} />
       </div>
       <div style={{ marginTop: 6 }}>
-        {cost ? `${cost} so far, estimated` : 'Cost unknown for this model'}
+        {cost
+          ? `${cost} so far${budget.costIsExact ? '' : ', estimated'}`
+          : 'Cost unknown for this model'}
       </div>
       {budget.warned && !budget.exhausted && (
         <div style={{ marginTop: 4, color: '#d9a441' }}>

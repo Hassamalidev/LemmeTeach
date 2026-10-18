@@ -1,10 +1,14 @@
 /**
  * Budget and cost accounting (§18).
  *
- * The learner is paying per token, so the app is accountable for every call.
- * The budget is not a safety net that fires at the end — it warns the tutor at
- * 80% so it can start wrapping up, and forces a graceful close at 100%. A
- * lesson never dies mid-sentence because of a budget.
+ * The learner has prepaid a fixed credit, so the app is accountable for every
+ * call. The budget is not a safety net that fires at the end — it warns the
+ * tutor at 80% so it can start wrapping up, and forces a graceful close at
+ * 100%. A lesson never dies mid-sentence because of a budget.
+ *
+ * Input is counted in *billable* tokens. Most of every turn is the same system
+ * prompt and tool definitions read back from the prompt cache at a tenth of
+ * the price, and counting those at full weight would end a cheap lesson early.
  */
 import { budgetError } from './errors';
 import { priceFor } from '../providers/pricing';
@@ -18,9 +22,13 @@ export interface BudgetSnapshot {
   inputTokens: number;
   outputTokens: number;
   limits: BudgetLimits;
+  /** Input tokens that came from the prompt cache, included in inputTokens. */
+  cachedInputTokens: number;
   /** 0..1 of whichever limit is closest to being hit. */
   fraction: number;
   estimatedCostUsd: number | null;
+  /** True when the cost is the gateway's own figure rather than our estimate. */
+  costIsExact: boolean;
   warned: boolean;
   exhausted: boolean;
   turns: number;
@@ -28,8 +36,13 @@ export interface BudgetSnapshot {
 
 export class Budget {
   private input = 0;
+  private cached = 0;
   private output = 0;
   private turnCount = 0;
+  private reportedCost = 0;
+  /** Stays true only while every turn so far came with the gateway's cost. */
+  private allCostsReported = true;
+  private usageCount = 0;
   private model: string;
   private providerId: string;
   private onChange?: (s: BudgetSnapshot) => void;
@@ -47,10 +60,28 @@ export class Budget {
     this.model = model;
   }
 
-  add(usage: { inputTokens: number; outputTokens: number }): void {
-    this.input += Math.max(0, usage.inputTokens || 0);
+  add(usage: {
+    inputTokens: number;
+    outputTokens: number;
+    cachedInputTokens?: number;
+    costUsd?: number;
+  }): void {
+    const input = Math.max(0, usage.inputTokens || 0);
+    this.input += input;
+    this.cached += Math.min(input, Math.max(0, usage.cachedInputTokens || 0));
     this.output += Math.max(0, usage.outputTokens || 0);
+    this.usageCount += 1;
+    if (typeof usage.costUsd === 'number' && Number.isFinite(usage.costUsd)) {
+      this.reportedCost += Math.max(0, usage.costUsd);
+    } else {
+      this.allCostsReported = false;
+    }
     this.onChange?.(this.snapshot());
+  }
+
+  /** Input weighted by what it costs: a cached token is a tenth of a fresh one. */
+  private get billableInput(): number {
+    return this.input - this.cached * (1 - CACHED_TOKEN_WEIGHT);
   }
 
   countTurn(): void {
@@ -59,7 +90,7 @@ export class Budget {
 
   get fraction(): number {
     return Math.max(
-      this.input / Math.max(1, this.limits.inputTokens),
+      this.billableInput / Math.max(1, this.limits.inputTokens),
       this.output / Math.max(1, this.limits.outputTokens),
     );
   }
@@ -84,21 +115,30 @@ export class Budget {
 
   snapshot(): BudgetSnapshot {
     const price = priceFor(this.providerId, this.model);
-    const cost = price
-      ? (this.input / 1e6) * price.inputPerMTok + (this.output / 1e6) * price.outputPerMTok
+    const exact = this.allCostsReported && this.usageCount > 0;
+    const estimate = price
+      ? ((this.input - this.cached) / 1e6) * price.inputPerMTok +
+        (this.cached / 1e6) * (price.cachedInputPerMTok ?? price.inputPerMTok) +
+        (this.output / 1e6) * price.outputPerMTok
       : null;
     return {
       inputTokens: this.input,
       outputTokens: this.output,
+      cachedInputTokens: this.cached,
       limits: this.limits,
       fraction: this.fraction,
-      estimatedCostUsd: cost,
+      // The gateway's own figure wins: it knows cache writes and fallbacks.
+      estimatedCostUsd: exact ? this.reportedCost : estimate,
+      costIsExact: exact,
       warned: this.shouldWrapUp,
       exhausted: this.isExhausted,
       turns: this.turnCount,
     };
   }
 }
+
+/** What a cache-read token costs relative to a fresh one, across our models. */
+export const CACHED_TOKEN_WEIGHT = 0.1;
 
 /**
  * A rough token estimate for text, used for the context-growth check in §7 and

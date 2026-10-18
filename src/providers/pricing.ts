@@ -13,6 +13,8 @@
 export interface Price {
   inputPerMTok: number;
   outputPerMTok: number;
+  /** Price of input read back from the prompt cache, where the model has one. */
+  cachedInputPerMTok?: number;
 }
 
 const ANTHROPIC: Record<string, Price> = {
@@ -34,15 +36,25 @@ const GEMINI: Record<string, Price> = {
   'gemini-1.5-flash': { inputPerMTok: 0.075, outputPerMTok: 0.3 },
 };
 
+/** Only the models the product itself assigns (managed.ts), not the catalogue. */
+// Read off openrouter.ai/api/v1/models on 2026-10-08.
+const OPENROUTER: Record<string, Price> = {
+  'anthropic/claude-haiku-5.5': { inputPerMTok: 0.1, outputPerMTok: 0.5, cachedInputPerMTok: 0.01 },
+  'openai/gpt-6-luna': { inputPerMTok: 0.1, outputPerMTok: 0.5, cachedInputPerMTok: 0.01 },
+  'anthropic/claude-sonnet-5.5': { inputPerMTok: 2, outputPerMTok: 10, cachedInputPerMTok: 0.1 },
+  'openai/gpt-6.1-sol': { inputPerMTok: 2, outputPerMTok: 10, cachedInputPerMTok: 0.1 },
+};
+
 const TABLES: Record<string, Record<string, Price>> = {
   anthropic: ANTHROPIC,
   openai: OPENAI,
   gemini: GEMINI,
+  openrouter: OPENROUTER,
 };
 
 export function priceFor(providerId: string, model: string): Price | null {
   const table = TABLES[providerId];
-  if (!table) return null; // OpenRouter, a local endpoint, the mock: unknown by design.
+  if (!table) return null; // A local endpoint, the mock: unknown by design.
   const exact = table[model];
   if (exact) return exact;
   // Dated model ids ("gpt-4o-2024-11-20") should match their base entry, but
@@ -56,6 +68,8 @@ export function priceFor(providerId: string, model: string): Price | null {
 /** "about $0.04" / "under a cent" — cost written the way a person reads it. */
 export function formatCost(usd: number | null): string | null {
   if (usd === null || !Number.isFinite(usd)) return null;
+  // A replay costs exactly nothing, and can say so.
+  if (usd === 0) return 'nothing';
   if (usd < 0.01) return 'under a cent';
   if (usd < 1) return `about ${(usd * 100).toFixed(0)} cents`;
   return `about $${usd.toFixed(2)}`;

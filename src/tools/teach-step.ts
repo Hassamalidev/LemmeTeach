@@ -6,23 +6,26 @@
  * which is why the description says so plainly rather than leaving it implied.
  */
 import { validateOps } from '../board/validate';
+import { BOARD_OPS_WIRE } from '../board/op-schema';
 import type { Tool, ToolOutcome } from './index';
 import type { ToolContext } from './context';
 import { TeachStepInput, type TeachStepIn } from './schemas';
 
 export const teachStep: Tool = {
   name: 'teach_step',
-  description: `Write the next step of the lesson on the board and say it out loud. This is your main tool — most turns are one teach_step.
+  description: `Write the next step on the board and say it aloud. Your main tool: once per turn, one idea per step.
 
-Two channels doing different jobs. "say" is read aloud by a speech engine, so it must be plain spoken language: no markdown, no LaTeX, no symbols, no bullet characters. Say "d by d x of x squared is two x", never the notation. The board carries the notation and the structure. They complement each other; they must never be the same sentences twice.
+"say" is read aloud by a speech engine: plain spoken words only, no markdown, LaTeX or symbols ("d by d x", not the notation). "board" carries the notation and structure, in the operation shapes listed under THE BOARD. The two complement each other and never repeat each other.
 
-Call this once per turn. One step is one idea: a worked instance, a derivation, a diagram, a comparison. If a step needs more than about eight board operations it is two steps.
-
-Example — teaching the product rule:
-  say: "Watch what happens when I differentiate x squared times sine x. I take the derivative of the first part and leave the second alone, then add the first part times the derivative of the second."
-  board: [{"op":"math","tex":"\\\\frac{d}{dx}\\\\left(x^2 \\\\sin x\\\\right)","id":"target"},
-          {"op":"derive","lines":[{"tex":"= 2x\\\\sin x + x^2\\\\cos x","note":"first' second + first second'"}]}]`,
+Example: say "I differentiate the first part and leave the second alone, then the other way round, and add." board [{"op":"derive","lines":[{"tex":"= 2x\\sin x + x^2\\cos x","note":"first' second + first second'"}]}]`,
   schema: TeachStepInput,
+  wire: (schema) => ({
+    ...schema,
+    properties: {
+      ...schema.properties,
+      board: { ...BOARD_OPS_WIRE, description: schema.properties?.board?.description },
+    },
+  }),
   agents: ['tutor'],
   parallelSafe: false,
   suspends: false,
@@ -74,7 +77,7 @@ Example — teaching the product rule:
     // Models otherwise keep writing off the bottom of the page, so the
     // instruction goes in the result itself rather than only in the prompt.
     const note = outcome.boardFull
-      ? 'The page is nearly full. Set "clear": true on your next teach_step to start a fresh page — the learner can still scroll back to this one.'
+      ? 'This part of the board is getting long. Set "clear": true on your next teach_step to start a fresh section. Everything above stays on screen and the learner can scroll up to it, but annotate can only point at things in the current section.'
       : undefined;
 
     return {

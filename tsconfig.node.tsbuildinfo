@@ -1,1 +1,1 @@
-{"root":["./vite.config.ts"],"version":"5.9.3"}
+{"root":["./vite.config.ts","./api/activate.ts","./api/webhook.ts","./api/_lib/billing.test.ts","./api/_lib/events.ts","./api/_lib/grants.ts","./api/_lib/handlers.test.ts","./api/_lib/http.ts","./api/_lib/lemon.ts","./api/_lib/openrouter.ts","./shared/plans.test.ts","./shared/plans.ts"],"version":"5.9.3"}

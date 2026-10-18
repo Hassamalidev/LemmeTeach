@@ -57,20 +57,11 @@ function present(value: unknown, precision: number): string {
 
 export const compute: Tool = {
   name: 'compute',
-  description: `Evaluate mathematical expressions instantly. Use it for arithmetic you want to be exactly right, unit conversion, and symbolic simplification or differentiation.
+  description: `Evaluate up to eight mathematical expressions at once, instantly: exact arithmetic, unit conversion, simplification, derivatives. Use it for every number you put on the board. Say the result, not that you computed it.
 
-Prefer this over run_code for anything that fits on one line — it returns in milliseconds where Python takes several seconds to start. But do not use it for arithmetic a person does in their head, and do not narrate that you are using it: say the result, not the tool.
-
-Syntax is mathjs. Useful forms:
-  "9.81 * 2.5^2 / 2"
-  "unit(3, 'eV') to 'J'"
-  "sqrt(2 * 9.81 * 12)"
-  "simplify('x^2 + 2x + 1')"
-  "derivative('x^2 sin(x)', 'x')"
-
-You may pass up to eight expressions in one call; they are evaluated together.`,
+mathjs syntax: "9.81 * 2.5^2 / 2", "unit(3, 'eV') to 'J'", "simplify('x^2 + 2x + 1')", "derivative('x^2 sin(x)', 'x')".`,
   schema: ComputeInput,
-  agents: ['tutor', 'examiner'],
+  agents: ['tutor'],
   parallelSafe: true,
   suspends: false,
 

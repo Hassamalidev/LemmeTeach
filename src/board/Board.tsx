@@ -132,6 +132,179 @@ export function Board({
   );
 }
 
+/* ------------------------------------------------------------------ *
+ * The scrolling board
+ * ------------------------------------------------------------------ */
+
+export interface BoardScrollProps {
+  /** The steps to show, top to bottom, in the order they were explained. */
+  steps: BoardStep[];
+  /** Steps that begin a fresh page: drawn with a rule above them. */
+  breaks: ReadonlySet<string>;
+  /** Steps that answer a raised hand rather than continue the solution. */
+  asides: ReadonlySet<string>;
+  /** The step being explained now. The board keeps it in view. */
+  followId: string | null;
+  theme: BoardTheme;
+  subject: SubjectId;
+  reveal: Map<string, number>;
+  reducedMotion?: boolean;
+}
+
+/**
+ * Everything written so far, in one column that grows downwards.
+ *
+ * Earlier steps stay where they were written, so the learner can scroll up to
+ * look at one and scroll back. The board follows the step being explained
+ * unless they have scrolled away, in which case it leaves them alone and
+ * offers a way back — nothing is worse than a page that moves while you read.
+ */
+export function BoardScroll({
+  steps,
+  breaks,
+  asides,
+  followId,
+  theme,
+  subject,
+  reveal,
+  reducedMotion = false,
+}: BoardScrollProps): JSX.Element {
+  const pageRef = useRef<HTMLDivElement>(null);
+  const [targets] = useState(() => new Map<string, HTMLElement>());
+  const [, forceMeasure] = useState(0);
+  const following = useRef(true);
+  const [away, setAway] = useState(false);
+
+  const register = useCallback(
+    (id: string, el: HTMLElement | null) => {
+      if (el) targets.set(id, el);
+      else targets.delete(id);
+      forceMeasure((n) => n + 1);
+    },
+    [targets],
+  );
+
+  const style = useMemo(
+    () => ({ ...themeVars(theme, subject) }) as React.CSSProperties,
+    [theme, subject],
+  );
+  const grid = gridFor(theme);
+
+  /** Bring the step being explained into view. */
+  const follow = useCallback(
+    (smooth: boolean) => {
+      const page = pageRef.current;
+      if (!page || !followId) return;
+      const el = page.querySelector<HTMLElement>(`[data-step-wrap="${followId}"]`);
+      if (!el) return;
+
+      const top = el.offsetTop;
+      const height = el.offsetHeight;
+      const room = page.clientHeight;
+      // A step that fits is shown whole, sitting at the bottom of the view with
+      // what came before it above. One that does not fit starts at the top.
+      const target = height + 48 <= room ? top + height - room + 48 : top - 20;
+      const clamped = Math.max(0, Math.min(target, page.scrollHeight - room));
+      if (Math.abs(clamped - page.scrollTop) < 4) return;
+      if (typeof page.scrollTo === 'function') {
+        page.scrollTo({ top: clamped, behavior: smooth && !reducedMotion ? 'smooth' : 'auto' });
+      } else {
+        page.scrollTop = clamped;
+      }
+    },
+    [followId, reducedMotion],
+  );
+
+  // Follow when the step changes, and again shortly after: typeset math,
+  // highlighted code and figures all arrive late and change heights.
+  useEffect(() => {
+    if (!following.current) return;
+    follow(true);
+    const soon = window.setTimeout(() => following.current && follow(false), 350);
+    const later = window.setTimeout(() => following.current && follow(false), 1300);
+    return () => {
+      window.clearTimeout(soon);
+      window.clearTimeout(later);
+    };
+  }, [follow, steps.length]);
+
+  /** The learner moved the page themselves: stop following until they come back. */
+  const letGo = useCallback(() => {
+    if (!following.current) return;
+    following.current = false;
+    setAway(true);
+  }, []);
+
+  const comeBack = useCallback(() => {
+    following.current = true;
+    setAway(false);
+    follow(true);
+  }, [follow]);
+
+  return (
+    <div className="board-shell board-continuous" style={style} data-theme={theme}>
+      <div
+        className="board-page"
+        ref={pageRef}
+        tabIndex={0}
+        role="region"
+        aria-label="The board. Scroll up to see earlier steps."
+        style={grid ? { backgroundImage: ruled(grid), backgroundAttachment: 'local' } : undefined}
+        onWheel={(e) => {
+          if (e.deltaY < 0) letGo();
+        }}
+        onTouchMove={letGo}
+        onKeyDown={(e) => {
+          if (['ArrowUp', 'PageUp', 'Home'].includes(e.key)) letGo();
+        }}
+      >
+        <div className="board-col board-main">
+          {steps.map((step) => (
+            <div
+              key={step.id}
+              data-step-wrap={step.id}
+              className={[
+                'board-entry',
+                breaks.has(step.id) ? 'board-break' : '',
+                asides.has(step.id) ? 'board-aside' : '',
+                step.id === followId ? 'board-current' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+            >
+              {asides.has(step.id) && <div className="board-aside-label">Your question</div>}
+              <StepView step={step} col="main" reveal={reveal} register={register} theme={theme} />
+              <StepView step={step} col="side" reveal={reveal} register={register} theme={theme} />
+            </div>
+          ))}
+        </div>
+
+        <div className="board-annotations">
+          {steps.flatMap((step) =>
+            step.ops
+              .filter((o): o is Extract<BoardOp, { op: 'annotate' }> => o.op === 'annotate')
+              .map((op, i) => (
+                <AnnotateOpView
+                  key={`${step.id}-a${i}`}
+                  op={op}
+                  revealed={revealedFor(step, reveal, indexOfOp(step, op))}
+                  targets={targets}
+                  container={pageRef.current}
+                />
+              )),
+          )}
+        </div>
+      </div>
+
+      {away && followId ? (
+        <button className="board-jump" onClick={comeBack}>
+          ↓ Back to the current step
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function StepView({
   step,
   col,

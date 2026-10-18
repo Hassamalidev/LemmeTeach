@@ -94,19 +94,15 @@ export function statusFor(entry: TraceEntry): string | null {
     case 'phase':
       switch (entry.to) {
         case 'PLANNING':
-          return 'Planning the lesson';
+          return 'Reading your question';
         case 'TEACHING':
-          return 'Teaching';
+          return 'Solving it on the board';
         case 'CHECKING':
           return 'Waiting for your answer';
-        case 'REMEDIATING':
-          return 'Backing up to fill a gap';
         case 'INTERRUPTED':
           return 'Listening to your question';
-        case 'EXAMINING':
-          return 'Setting a short check';
         case 'REVIEW':
-          return 'Wrapping up';
+          return 'Done';
         default:
           return null;
       }
@@ -118,18 +114,12 @@ export function statusFor(entry: TraceEntry): string | null {
             ? `Working that out in ${input.language === 'python' ? 'Python' : 'JavaScript'}: ${input.purpose}`
             : 'Running some code';
         }
-        case 'search_materials':
-          return 'Checking your notes';
         case 'wiki_lookup':
           return 'Looking that up';
         case 'compute':
           return 'Doing the arithmetic';
-        case 'recall_learner':
-          return 'Reading what you already know';
-        case 'update_learner':
-          return null; // Housekeeping; not worth a status line.
         case 'plan_lesson':
-          return 'Writing the plan';
+          return 'Planning the solution';
         default:
           return null;
       }

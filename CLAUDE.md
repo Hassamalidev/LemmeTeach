@@ -1,8 +1,10 @@
-# CLAUDE.md — Chalk
+# CLAUDE.md — LemmeTeach
 
-Build spec for **Chalk**: an agentic AI tutor that runs entirely in the browser. It plans a lesson, teaches it on an animated whiteboard while speaking, runs code to work things out, asks the learner questions and waits for real answers, changes course when the learner is lost, and remembers what they know between sessions.
+Build spec for **LemmeTeach**: a paid, subscription AI tutor that solves the learner's own questions. They type a question, paste a screenshot of it, or attach the file it is in; it is worked through on an animated whiteboard one step at a time and explained aloud, and they can stop it at any point to ask something.
 
-Every agent, every tool, and every byte of memory lives client-side. The user brings their own API key. The deployed artifact is a folder of static files.
+Solving runs entirely in the browser. There are two ways to pay for it. A **subscription** buys a monthly AI credit, delivered as a spend-capped key that is provisioned automatically (§28), so the learner never sees an API key. Or the learner pastes **their own API key** (§5.8), pays their provider directly, and we charge nothing. The deployed artifact is a folder of static files plus two small serverless functions that exist only for billing.
+
+LemmeTeach began as *Chalk*, an open-source tutor that taught lessons on a topic, quizzed the learner, and kept a record of what they knew. That product is gone: the lesson flow, the checks, the exam, the learner record and the materials library were all removed. Internal identifiers still carry the history — `chalk.*` storage keys, `ChalkError`, `chalk-*` CSS classes, and the agent and tool names noted in §3 — because renaming them would orphan stored data and churn every trace for no user-visible gain. Everything a learner can read says LemmeTeach.
 
 This file is the source of truth. Where it conflicts with a default habit, this file wins. Where it is silent, ask before inventing.
 
@@ -21,36 +23,41 @@ This file is the source of truth. Where it conflicts with a default habit, this 
 9. [Tool catalog](#9-tool-catalog)
 10. [The board contract](#10-the-board-contract)
 11. [Sandboxed code execution](#11-sandboxed-code-execution)
-12. [Learner memory](#12-learner-memory)
-13. [Materials and retrieval](#13-materials-and-retrieval)
+12. [What is kept about the learner](#12-what-is-kept-about-the-learner)
+13. [Attachments](#13-attachments)
 14. [Voice and synchronization](#14-voice-and-synchronization)
 15. [Screens and interaction](#15-screens-and-interaction)
 16. [Design direction](#16-design-direction)
 17. [Failure handling](#17-failure-handling)
 18. [Budget and cost control](#18-budget-and-cost-control)
 19. [Security and privacy](#19-security-and-privacy)
-20. [Storage schema](#20-storage-schema)
+20. [Storage](#20-storage)
 21. [File layout](#21-file-layout)
-22. [Testing and evaluation](#22-testing-and-evaluation)
-23. [Build order](#23-build-order)
+22. [Testing](#22-testing)
+23. [Status and what is next](#23-status-and-what-is-next)
 24. [Deployment](#24-deployment)
 25. [Definition of done](#25-definition-of-done)
 26. [Assumptions to confirm](#26-assumptions-to-confirm)
+27. [Product, plans and pricing](#27-product-plans-and-pricing)
+28. [Billing backend](#28-billing-backend)
+29. [Landing page](#29-landing-page)
 
 ---
 
 ## 1. What this is
 
-A learner opens the site, pastes an API key once, picks one of five subjects — Math, Physics, Chemistry, Computer Science, Biology — and names a topic. Then:
+A visitor lands on the marketing page (§29), tries the demo or picks a plan (§27), pays through Lemon Squeezy, and pastes the license key they receive once. From then on:
 
-1. A **planner agent** reads what the learner already knows from local memory, checks any material they uploaded, and writes a lesson plan with objectives and prerequisites.
-2. A **tutor agent** works through that plan in a loop. Each turn it decides what to do next: write on the board and narrate, run code to compute or simulate something, look a fact up, ask the learner a question and *wait* for the answer, or move on.
-3. When the learner answers wrong, the tutor sees the answer as a tool result and adapts — backs up to a prerequisite, re-explains with a different representation, or slows down. This branching is the point of the whole system. A model that emits a fixed script is not a tutor; it is a video.
-4. An **examiner agent** closes the lesson with a short check, updates the mastery record, and schedules a review.
+1. They **bring a question**: typed, pasted as a screenshot, or attached as a photo, PDF or text file. There is no subject to pick and no level to set.
+2. A **reader agent** reads the question and anything attached, restates it in full, works out the subject and level from the question itself, and plans the solution. If part of an upload cannot be read, or the question is ambiguous in a way that changes the answer, it asks one clarifying question and waits. Otherwise it asks nothing.
+3. A **solver agent** works the question through on the board, one move per step: why this move, the move, what it gave. It draws the situation before any algebra, computes every number, and finishes with the answer, its units, and a check that it is sensible. A voice explains each step as it is written.
+4. The learner can **stop it and ask** at any moment, by typing or by voice. The solver answers that question in one step, the learner is asked whether the answer made sense, and only when they say yes does the solution pick up from exactly where it stopped. If they say no, it is explained again a different way.
+5. Everything written stays on the board, which grows downwards; the learner can scroll up to any earlier step.
+6. It ends on a summary and the worked solution, which the learner can copy or download. They can still ask about it after it has finished.
 
-The learner can raise a hand at any moment, which interrupts the loop with a real question. Everything is saved locally, so the next lesson starts from what actually stuck.
+There are no quizzes, no checks for understanding, and no closing exam. The solver has no tool for asking the learner anything.
 
-**The distinction that matters:** the model is not asked to produce a lesson. It is handed a whiteboard, a code sandbox, a learner record, and a voice, and asked to teach. The lesson is whatever the trace of tool calls turns out to be.
+**The distinction that matters:** the model is not asked to produce an answer. It is handed a whiteboard, a code sandbox, a calculator and a voice, and asked to solve the question in front of someone. The solution is whatever the trace of tool calls turns out to be.
 
 ---
 
@@ -58,19 +65,25 @@ The learner can raise a hand at any moment, which interrupts the loop with a rea
 
 | Constraint | Meaning |
 |---|---|
-| **No backend** | No server, no serverless function, no proxy, no hosted database, no queue. The build output is static files served from a CDN. |
-| **BYOK** | The key is entered by the user, stored only in their browser, and sent only to the provider they chose. It reaches no other host, ever. |
-| **Provider-agnostic** | Anthropic, OpenAI, Google Gemini, OpenRouter, or any OpenAI-compatible endpoint including a local Ollama or LM Studio. |
-| **Agentic** | A multi-turn tool-use loop with real branching. Not a prompt that returns a script. |
-| **One-step deploy** | Connect the repo, or run one CLI command. Zero environment variables, zero configuration. |
-| **Runs anywhere** | Any modern browser, desktop and mobile, at any URL path, including a GitHub Pages subpath and `file://`. |
-| **Degrades, never dies** | Every capability has a defined fallback. A failed tool, a refused key, a browser without speech synthesis — none of these produce a blank screen. |
+| **Minimal backend** | Two serverless functions, both billing-only (§28): one turns a license key into a spend-capped model key, one receives payment webhooks. No question, upload, prompt or solution ever passes through them. No database — Lemon Squeezy and OpenRouter are the system of record. |
+| **Managed credit, or your own key** | A subscriber never sees a provider console: their plan funds a per-learner OpenRouter key whose spending cap equals their credit. Someone who already has a key from a supported provider can paste it instead and skip the subscription (§5.8). Either way the browser calls the provider directly. |
+| **The learner decides when they have understood** | After a question is answered the solution waits for the learner to say it made sense. The model may not decide that for them and may not quiz them to find out (§15). |
+| **Fixed margin** | Every plan is priced so that $2 per subscriber per month remains after payment fees, a hosting allowance, and the full cost of the credit (§27). The numbers live in one file. |
+| **Capped exposure** | A learner can never spend more than they paid for. The cap is enforced by OpenRouter on the key itself, not by client code. |
+| **As many questions as the credit allows** | The cost of a solved question is an engineering target, not a given: the cheapest model that solves well, prompt caching, short prompts, attachments sent once, and exact cost accounting (§18). |
+| **Agentic** | A multi-turn tool-use loop. Not a prompt that returns an answer. |
+| **Every step is spoken, in order** | The model is held to the pace of the voice. Nothing is skipped and the summary waits for the last step (§14). |
+| **Simple deploy** | Connect the repo to Vercel, set the environment variables in §24, done. The static build itself still needs none, so the demo works anywhere. |
+| **Runs anywhere** | Any modern browser, desktop and mobile. The static build works at any URL path; paid use additionally needs the `/api` functions on the same origin. |
+| **Degrades, never dies** | Every capability has a defined fallback. A failed tool, an expired subscription, spent credit, a browser without speech synthesis — none of these produce a blank screen. |
 
 ### Anti-goals
 
-Do not build: accounts, login, a shared or embedded key, a CORS proxy, a telemetry pipeline, a payments flow, a general-purpose chatbot, cloud sync. Do not add a client-side router. Do not add a state management library. Do not reach for a backend to solve a problem this document already solves — every provider here supports direct browser calls (§5), code runs in a sandboxed frame (§11), and retrieval runs over IndexedDB (§13).
+Do not build: quizzes, checks for understanding, an exam, a learner profile or mastery record, spaced review, a materials library with retrieval, a subject or level picker, a reduced "scripted" mode. All of these existed in the earlier teach-a-topic product and were deliberately removed; do not bring them back without being asked.
 
-If you find yourself about to write "this needs a small server", stop and re-read the relevant section. If it genuinely does, raise it rather than building it.
+Do not build: user accounts or passwords (the license key is the credential), a user database, a model proxy (the browser calls OpenRouter directly), a telemetry pipeline, cloud sync, a general-purpose chatbot, a provider or model picker (an own key's provider is read off the key, and its model is chosen for it). Do not add a client-side router. Do not add a state management library.
+
+The backend is allowed to do exactly two things: exchange a license for a key, and react to payment events. If you find yourself about to route model traffic, store learner data, or add a database on the server, stop and raise it rather than building it.
 
 ---
 
@@ -81,57 +94,58 @@ If you find yourself about to write "this needs a small server", stop and re-rea
 │  BROWSER TAB   (everything below ships as static files)             │
 │                                                                     │
 │  ┌───────────────┐   turns    ┌──────────────────────────────────┐  │
-│  │  Orchestrator │◄──────────►│  Agent runtime                   │  │
-│  │  (phase FSM)  │            │  loop · budget · abort · retry   │  │
+│  │  Session      │◄──────────►│  Agent runtime                   │  │
+│  │  (phase FSM)  │            │  loop · budget · abort · pacing  │  │
 │  └───────┬───────┘            └───────┬──────────────────────────┘  │
 │          │                            │ normalized messages + tools  │
 │          │                            ▼                             │
 │          │                    ┌───────────────┐   HTTPS             │
 │          │                    │  Provider     │──────────────►  ☁   │
-│          │                    │  adapters     │   user's key        │
+│          │                    │  adapter      │   capped key        │
 │          │                    └───────┬───────┘                     │
 │          │                            │ tool calls                  │
 │          ▼                            ▼                             │
 │  ┌────────────────────────────────────────────────────────────────┐ │
 │  │  Tool bus —  validate → authorize → dispatch → result          │ │
-│  ├─────────┬─────────┬──────────┬──────────┬─────────┬───────────┤ │
-│  │ Board   │ Sandbox │ Learner  │ Library  │ Learner │ Wiki      │ │
-│  │ writer  │ iframe  │ memory   │ IDB +    │ prompt  │ lookup    │ │
-│  │         │ + worker│ (IDB)    │ BM25     │ (waits) │ (CORS)    │ │
-│  └────┬────┴─────────┴──────────┴──────────┴────┬────┴───────────┘ │
-│       │                                         │                   │
-│       ▼                                         ▼                   │
+│  ├──────────┬──────────┬──────────┬───────────┬──────────┬────────┤ │
+│  │ Board    │ Sandbox  │ Compute  │ Learner   │ Notes    │ Wiki   │ │
+│  │ writer   │ iframe   │ (mathjs) │ prompt    │          │ lookup │ │
+│  │          │ + worker │          │ (waits)   │          │ (CORS) │ │
+│  └────┬─────┴──────────┴──────────┴───────────┴──────────┴────────┘ │
+│       │                                                             │
+│       ▼                                                             │
 │  ┌──────────────┐   reveal sync  ┌───────────────────────────────┐ │
 │  │ Board render │◄──────────────►│ Speech (Web Speech API)       │ │
-│  └──────────────┘                └───────────────────────────────┘ │
+│  └──────────────┘   + pacing     └───────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-**Layer rules.** The runtime knows nothing about teaching. The tools know nothing about which model called them. The board renderer knows nothing about agents — it takes board operations and draws them, and can be driven entirely from a fixture file. Keep these seams clean; they are what make the thing testable without a key.
+The billing functions (§28) sit outside this picture on purpose: they run once at activation and on payment events, never while a question is being solved.
+
+**Layer rules.** The runtime knows nothing about solving questions. The tools know nothing about which model called them. The board renderer knows nothing about agents — it takes board operations and draws them, and can be driven entirely from a fixture file. Keep these seams clean; they are what make the thing testable without a key.
 
 ### Phase state machine
 
-The orchestrator is a finite state machine, not another model. Model autonomy lives *inside* a phase; transitions between phases are code.
+The session is a finite state machine, not another model. Model autonomy lives *inside* a phase; transitions between phases are code (`src/orchestrator/machine.ts`).
 
 ```
-        ┌──────────────────────────────────────────────┐
-        ▼                                              │
-IDLE → PLANNING → TEACHING ⇄ CHECKING → EXAMINING → REVIEW → IDLE
-           │          │  ▲        │                     ▲
-           │          ▼  │        ▼                     │
-           │      INTERRUPTED   REMEDIATING ────────────┘
-           │      (raise hand)
-           └──► ABORTED ◄── budget exhausted · fatal error · user stop
+IDLE → PLANNING → TEACHING ⇄ INTERRUPTED
+          ⇅          │  ▲      (stop and ask)
+       CHECKING      ▼  │           ▲
+     (clarify)     REVIEW ──────────┘
+                              (a question after it has finished)
+
+any phase ──► ABORTED   (user stop · fatal error)
 ```
 
-- `PLANNING` — planner agent, ≤ 6 turns, ends when `plan_lesson` is called.
-- `TEACHING` — tutor agent, ≤ 40 turns, ends on `end_lesson` or budget.
-- `CHECKING` — entered when the tutor calls `check_understanding` or `ask_learner`; the loop suspends awaiting real human input, with no timeout.
-- `REMEDIATING` — entered automatically when a check scores below the remediation threshold (§8.3). The tutor receives the wrong answers and is told to back up.
-- `INTERRUPTED` — the learner raised a hand. Speech cancels, the question is injected as the next user message, `TEACHING` resumes.
-- `EXAMINING` — examiner agent, ≤ 8 turns.
-- `REVIEW` — no model calls. Notes, transcript, mastery diff, export.
-- `ABORTED` — always reachable, always leaves the board readable with whatever was taught so far saved.
+- `PLANNING` — the reader, ≤ 6 turns, ends when `plan_lesson` is called.
+- `CHECKING` — entered only from `PLANNING`, when the reader calls `ask_learner`. The loop suspends awaiting real human input, with no timeout, then returns to `PLANNING`.
+- `TEACHING` — the solver, ≤ 40 turns, ends on `end_lesson` or budget.
+- `INTERRUPTED` — the learner stopped it to ask. Speech stops, the question is injected as the next user message, `TEACHING` resumes.
+- `REVIEW` — the solution is finished. No model calls, unless the learner asks about it: then the solver is run again from where it ended, answers, and returns here.
+- `ABORTED` — always reachable, always leaves the board readable with whatever was written so far saved.
+
+The phase names `PLANNING` and `TEACHING`, the agent ids `planner` and `tutor`, and the tool names `plan_lesson`, `teach_step` and `end_lesson` predate the solve-only product. They are kept because traces, tool allowlists and the bundled walkthroughs are keyed on them; the prose calls them the reader and the solver.
 
 Every transition is written to the session trace (§22).
 
@@ -143,13 +157,16 @@ Every transition is written to the session trace (§22).
 - **Tailwind CSS**.
 - **KaTeX** — math typesetting.
 - **mathjs** — expression evaluation for plots and the `compute` tool.
-- **Shiki** — code highlighting on the board.
+- **Shiki** — code highlighting on the board, loaded on first use.
 - **idb-keyval** — thin IndexedDB wrapper.
 - **Pyodide** — loaded lazily, only on the first Python execution.
-- **Zod** — runtime validation of every tool input and every persisted record. Non-negotiable: the model *will* send malformed arguments, and every one of them must be caught at the tool bus rather than deep inside the renderer.
+- **Zod** — runtime validation of every tool input. Non-negotiable: the model *will* send malformed arguments, and every one of them must be caught at the tool bus rather than deep inside the renderer.
 - **Web Speech API** — voice. Built in, free, no key, no network.
+- **Vercel Functions** — Node runtime, Web-standard `Request`/`Response` handlers in `api/`. Billing only (§28).
+- **Lemon Squeezy** — checkout, subscriptions, tax as merchant of record, license keys.
+- **OpenRouter** — the model gateway, and its management API for per-learner capped keys.
 
-No state library, no router, no component kit, no animation library. Anything else needs a justification in the commit message.
+No state library, no router, no component kit, no animation library, no server framework, no database, no PDF library (PDFs go to the model as they are). Anything else needs a justification in the commit message.
 
 ---
 
@@ -192,6 +209,10 @@ export type AgentEvent =
 
 Everything above this layer sees only `AgentEvent`. Nothing above this layer may contain a provider name in a conditional.
 
+**What the product uses.** A subscriber's questions run on the OpenRouter adapter with their provisioned key, and the demo runs on the mock adapter. A learner's own key (§5.8) runs on whichever of the Anthropic, OpenAI, Gemini or OpenRouter adapters issued it. No screen offers a provider picker or a model field: a subscriber's models are fixed in `src/providers/managed.ts` (a standard tier and a deeper tier), and an own key's are chosen in `src/providers/own-key.ts`. The compatible adapter (a custom base URL) is not reachable from the UI.
+
+The OpenRouter adapter adds three request fields that the others do not (§18): `cache_control` for prompt caching, `usage` for the real cost of each turn, and `models` for a same-priced fallback. A `usage` event may carry `cachedInputTokens` and `costUsd` alongside the token counts.
+
 ### 5.1 Anthropic
 
 Browser calls need an opt-in header. Without it the request fails CORS, so this is not optional:
@@ -220,7 +241,7 @@ const res = await fetch('https://api.anthropic.com/v1/messages', {
 
 Stream shape to consume: `content_block_start` (block type `text` or `tool_use`), then `content_block_delta` carrying either `text_delta.text` or `input_json_delta.partial_json`, then `content_block_stop`, then `message_delta` with `stop_reason` and usage. Accumulate `partial_json` per block index and parse at `content_block_stop`.
 
-Mark the system prompt and tool definitions with `cache_control` — they are byte-identical on every turn of a lesson, and this is where most of the token spend would otherwise go.
+Mark the system prompt and tool definitions with `cache_control` — they are byte-identical on every turn of a solution, and this is where most of the token spend would otherwise go.
 
 Default `claude-sonnet-5`. Offer `claude-opus-5` for hard derivations and `claude-haiku-4-5-20251001` for cheap revision and for the repair pass (§17.3).
 
@@ -240,19 +261,42 @@ OpenAI-shaped at `https://openrouter.ai/api/v1`, plus `HTTP-Referer` and `X-Titl
 
 ### 5.5 Compatible
 
-OpenAI wire format, user-supplied base URL: Groq, Together, DeepSeek, vLLM, Ollama (`http://localhost:11434/v1`), LM Studio. Warn on `http://` origins other than localhost. Many small local models handle tool calls badly — detect three consecutive turns with no valid tool call and offer to switch the session to **scripted mode** (§17.4).
+OpenAI wire format, user-supplied base URL: Groq, Together, DeepSeek, vLLM, Ollama (`http://localhost:11434/v1`), LM Studio. Warn on `http://` origins other than localhost. Many small local models handle tool calls badly — which is one reason the product does not offer them.
 
 ### 5.6 Mock
 
-Replays a recorded session tape from `src/fixtures/tapes/`, emitting the same `AgentEvent` sequence with realistic timing. No key, no network. The whole UI — board, voice, sandbox, memory, interruption — must be exercisable through the mock adapter. Every fixture is a *recorded* session, never hand-written fiction, so the UI is developed against output the models actually produce.
+Replays a prepared walkthrough from `src/fixtures/lessons/` — or a recorded tape from `src/fixtures/tapes/` when one exists — emitting the same `AgentEvent` sequence with realistic timing. No key, no network. The whole UI — board, voice, sandbox, pacing, interruption — must be exercisable through the mock adapter. The five bundled walkthroughs are authored, not recorded, and are labelled as such; recording real tapes is still to do (§23).
 
 ### 5.7 Key handling
 
-- `localStorage` under `chalk.key.{providerId}`, or memory-only when the user ticks **Don't remember on this device**.
-- Never logged, never placed in a URL, never included in an exception message, a trace export, or a saved lesson. Ship a unit test asserting the key string appears in no serialized artifact.
-- Settings has **Forget key**: clears storage and reloads.
-- A `<meta http-equiv="Content-Security-Policy">` whose `connect-src` allows only the provider hosts, the Wikipedia API, and the user's custom base URL.
+Two secrets live in the learner's browser: the **license key** (their proof of purchase) and the **model key** (the capped OpenRouter key issued for it).
 
+- Both in `localStorage` — `chalk.license` and `chalk.key.openrouter`. A learner's own key (§5.8) lives beside them as `chalk.key.{provider}` and is held to the same rules.
+- Never logged, never placed in a URL, never included in an exception message, a trace export, or a saved solution. Ship a unit test asserting neither string appears in any serialized artifact.
+- The model key is sent only to `openrouter.ai`. The license key is sent only to our own `/api/activate`.
+- Settings has **Sign out of this device**: clears both and returns to the landing page. The subscription itself is untouched.
+- The model key is worth at most the learner's remaining credit. That bound is what makes holding it in the browser acceptable; never issue an uncapped key.
+- The OpenRouter **management key** and the webhook signing secret exist only as server environment variables. They must never be imported by anything under `src/`.
+- A `<meta http-equiv="Content-Security-Policy">` whose `connect-src` allows only our own origin, the services a key can belong to (§5.8), the Wikipedia API, and the Pyodide CDN.
+
+
+### 5.8 Your own key
+
+Someone who already has an API key can use LemmeTeach without subscribing (`src/providers/own-key.ts`, `src/ui/OwnKey.tsx`).
+
+- **Many services, two kinds.** Anthropic, OpenAI, Gemini and OpenRouter each have an adapter of their own. Mistral, Groq, DeepSeek, xAI, Together, Fireworks, Cerebras, Cohere, Alibaba (Qwen), Moonshot (Kimi) and Hyperbolic speak the OpenAI wire format at their own address and run on the `compatible` adapter. Only services that accept requests straight from a browser are listed; each was checked for the CORS headers that needs.
+- **One field.** They paste a key. Which service issued it is read off its shape where a shape exists: `sk-or-` OpenRouter, `sk-ant-` Anthropic, `AIza…` Gemini, `gsk_` Groq, `xai-` xAI, `fw_` Fireworks, `csk-` Cerebras, `sk-` plus 32 hex digits DeepSeek, any other `sk-` OpenAI, 32 letters and digits Mistral, 40 Cohere, 64 hex Together. Three services have no shape of their own and are reached only by choosing them.
+- **A list, for when the guess is wrong.** Some shapes are shared and some keys have none, so the screen has a "which service is it from?" list. It is left alone unless the key is not recognised or the guessed service refuses it, in which case the message says to use it.
+- **Checked once, with one service only.** One read-only request to that service — its model list, or OpenRouter's key endpoint — tells a bad key from a good one and a network failure from both. The key travels in a header, never in a URL, the reply is never echoed, and the key is **never tried against other services to see which accepts it**: that would hand a secret to companies that did not issue it.
+- **The model is chosen for them:** a preferred small model if the key can reach it; otherwise, on the compatible services, whatever the service's own list offers that looks like a small chat model, so a renamed model does not break a working key; and only then a fixed guess.
+- **Quirks are per service, not guessed.** `AdapterQuirks` records where a service differs from OpenAI: Mistral rejects `stream_options`, calls a forced tool choice `any`, and will not take a user message straight after a tool result (the adapter slips a one-word assistant turn in between); Cohere rejects `stream_options`. A new service with a new quirk gets a new field, with a test.
+- **Stored** in the key vault under its adapter's id, with `settings.ownKey` recording the service, its label, its address, its quirks and the models chosen. **Remove my key from this device** in Settings clears it.
+- **Our servers are not involved.** No activation, no webhook, no credit cap, no plan line. The meter shows an estimate from the static price table where the model is in it, and nothing otherwise.
+- **A plan wins.** If a license is active on the device, the plan is used and the own key is ignored.
+- **Attachments** are sent in each provider's own shape (§6). Whether a given compatible service can read an image depends on the model chosen there.
+- **The CSP must allow every service** (`public/csp.js`). `OWN_KEY_ORIGINS` lists them and a test holds the two together.
+
+Limits to be honest about: the OpenAI-shaped adapter sends `max_tokens` and a temperature, which OpenAI's newer reasoning models reject, so only the older chat models are offered there; prompt caching and exact cost reporting are OpenRouter features, so an own key elsewhere costs more per question and shows an estimate; and none of these services has run against a live key in this product. A service that is not listed is not supported — a key from it is refused, not guessed at.
 ---
 
 ## 6. Tool-call normalization
@@ -261,12 +305,13 @@ The internal message format every adapter converts to and from:
 
 ```ts
 type AgentMessage =
-  | { role: 'user';      content: string }
+  | { role: 'user';      content: string; attachments?: Attachment[] }   // §13
   | { role: 'assistant'; content: string; toolCalls: ToolCall[] }
   | { role: 'tool';      results: ToolResult[] };
 
 interface ToolCall   { id: string; name: string; input: unknown }
 interface ToolResult { id: string; name: string; ok: boolean; content: string }
+interface Attachment { kind: 'image' | 'file'; name: string; dataUrl: string }
 ```
 
 `ToolResult.content` is always a string, JSON-stringified for structured results. Keep results small: anything over 2 KB is truncated with a trailing note saying what was dropped. Tool results are the largest avoidable cost in an agent loop, because every one of them is re-sent on every subsequent turn.
@@ -287,6 +332,10 @@ Gemini returns no call id. Synthesize `${name}#${turnIndex}#${callIndex}` and ke
 
 `tool_delta` carries partial JSON. For `teach_step` specifically, feed the partial string through a tolerant incremental JSON parser so the board can start drawing the first operations while the rest of the arguments are still arriving. This is what makes the tutor feel live rather than turn-based, and it is worth the effort — but treat it as an optimization: if the tolerant parse fails at any point, discard the partial state and wait for `tool_end`. Never render an operation twice; every op carries an index and the renderer is idempotent per index.
 
+### Attachments
+
+A user message with `attachments` becomes content parts on the OpenAI-shaped wire: `{ type: 'text' }`, then `{ type: 'image_url', image_url: { url } }` for an image or `{ type: 'file', file: { filename, file_data } }` for a PDF. On Anthropic they are `image` and `document` blocks with a base64 source, placed before the text; on Gemini, `inlineData` parts. A message without attachments is sent exactly as before. Only the reader's first message ever carries them (§13).
+
 ---
 
 ## 7. The agent runtime
@@ -297,16 +346,20 @@ async function runAgent(cfg: AgentConfig, ctx: RunContext): Promise<AgentOutcome
 
   for (let turn = 0; turn < cfg.maxTurns; turn++) {
     ctx.budget.assertNotExhausted();
+    await ctx.beforeTurn?.();            // pacing: the session may hold this (§14)
     ctx.signal.throwIfAborted();
 
-    const { text, toolCalls, usage, stop } = await consume(
+    const injection = ctx.injectBeforeTurn?.();   // raised hand, wrap-up warning
+    if (injection) messages.push({ role: 'user', content: injection });
+
+    const { text, toolCalls, usage } = await consume(
       provider.run({ ...cfg.request, messages: compact(messages, ctx) }, ctx.signal),
       ctx,
     );
     ctx.budget.add(usage);
     messages.push({ role: 'assistant', content: text, toolCalls });
 
-    if (toolCalls.length === 0) return { reason: 'no_tool_call', messages };
+    if (toolCalls.length === 0) continue;         // nudged, then tool_choice forced (§17.3)
 
     const results = await ctx.toolBus.dispatch(toolCalls, ctx);
     messages.push({ role: 'tool', results });
@@ -321,93 +374,95 @@ async function runAgent(cfg: AgentConfig, ctx: RunContext): Promise<AgentOutcome
 ### Rules
 
 - **The loop is code, not a prompt.** No agent decides how many turns it gets.
-- **Suspension.** `ask_learner` and `check_understanding` return a promise that resolves only when the human answers. The loop genuinely suspends; the tab can sit there for an hour. No timeout, and no fabricated answer, ever.
-- **Parallel dispatch.** Tools declare `parallelSafe`. Safe ones (`compute`, `wiki_lookup`, `search_materials`, `recall_learner`) run under `Promise.all`. Anything touching the board, the learner, or persisted memory runs sequentially in the order the model emitted them, because order is meaning.
-- **Validation at the bus.** Every input is parsed by its Zod schema. Failure returns `ok: false` with a message naming the offending field and the expected shape, and the loop continues so the model can repair its own call. Two consecutive validation failures on the same tool escalate to §17.3.
-- **Authorization at the bus.** The access matrix in §8.1 is enforced here, not merely by which specs were sent.
-- **Abort.** One `AbortController` per session. Aborting cancels the fetch, cancels speech, halts the sandbox, and freezes the board where it stands. The partial lesson is saved.
+- **Suspension.** `ask_learner` returns a promise that resolves only when the human answers. The loop genuinely suspends; the tab can sit there for an hour. No timeout, and no fabricated answer, ever.
+- **Pacing.** `beforeTurn` is awaited at the top of every turn. The session resolves it only when the voice is within one step of the board, and never while an answer to the learner's question is waiting on them to say whether it made sense (§14, §15).
+- **Parallel dispatch.** Tools declare `parallelSafe`. Safe ones (`compute`, `wiki_lookup`) run under `Promise.all`. Anything touching the board or the learner runs sequentially in the order the model emitted them, because order is meaning.
+- **Validation at the bus.** Every input is parsed by its Zod schema. Failure returns `ok: false` with a message naming the offending field and the expected shape, and the loop continues so the model can repair its own call. Two consecutive board failures escalate to §17.3.
+- **Authorization at the bus.** The access matrix in §8.1 is enforced here, not merely by which specs were sent. So are capabilities switched off for the session (`run_code` with no sandbox, `wiki_lookup` when disabled).
+- **Abort.** One `AbortController` per session. Aborting cancels the fetch, cancels speech, halts the sandbox, releases any pacing hold, and freezes the board where it stands. What was written is saved.
 - **Trace.** Every event — turn boundary, text, tool call, tool result, phase transition, error, usage — appends to an in-memory trace, capped and exportable (§22).
-- **Context growth.** Before each turn, if estimated tokens exceed 60% of the model's window, compact: keep the system prompt, the plan, and the last six turns verbatim, and replace everything older with a summary block the runtime generates *deterministically* from board history and mastery deltas. Do not spend a model call summarizing.
+- **Context growth.** Before each turn, if estimated tokens exceed 60% of the configured window, compact: keep the system prompt, the plan, and the last six turns verbatim, and replace everything older with a summary block the runtime generates *deterministically* from the plan and the board history. Do not spend a model call summarizing. The configured window is 60k tokens, far below the model's real one, because short prompts are cheap prompts (§18).
 
 ---
 
 ## 8. Agent roster
 
-Four agents. Each is a system prompt plus a tool allowlist plus a budget. They share one provider and one tool bus.
+Three agents. Each is a system prompt plus a tool allowlist plus a budget (`src/agents/index.ts`). They share one provider and one tool bus.
 
-| Agent | Phase | Max turns | Model preference | Terminal tool |
-|---|---|---|---|---|
-| Planner | `PLANNING` | 6 | fast | `plan_lesson` |
-| Tutor | `TEACHING` | 40 | strong | `end_lesson` |
-| Examiner | `EXAMINING` | 8 | fast | `finish_exam` |
-| Repairer | any | 2 | cheapest | `fix_board` |
+| Agent | Id in code | Phase | Max turns | Model | Terminal tool |
+|---|---|---|---|---|---|
+| Reader | `planner` | `PLANNING` | 6 | fast | `plan_lesson` |
+| Solver | `tutor` | `TEACHING` | 40 | fast, or strong on the deeper tier | `end_lesson` |
+| Repairer | `repairer` | any | 2 | fast | `fix_board` |
 
 ### 8.1 Tool access matrix
 
-| Tool | Planner | Tutor | Examiner | Repairer |
-|---|:--:|:--:|:--:|:--:|
-| `recall_learner` | ● | ● | ● | |
-| `search_materials` | ● | ● | | |
-| `wiki_lookup` | ● | ● | | |
-| `plan_lesson` | ● | | | |
-| `teach_step` | | ● | | |
-| `ask_learner` | | ● | ● | |
-| `check_understanding` | | ● | ● | |
-| `run_code` | | ● | | |
-| `compute` | | ● | ● | |
-| `update_learner` | | ● | ● | |
-| `save_note` | | ● | | |
-| `schedule_review` | | | ● | |
-| `end_lesson` | | ● | | |
-| `finish_exam` | | | ● | |
-| `fix_board` | | | | ● |
+| Tool | Reader | Solver | Repairer |
+|---|:--:|:--:|:--:|
+| `plan_lesson` | ● | | |
+| `ask_learner` | ● | | |
+| `wiki_lookup` | ● | ● | |
+| `teach_step` | | ● | |
+| `run_code` | | ● | |
+| `compute` | | ● | |
+| `save_note` | | ● | |
+| `end_lesson` | | ● | |
+| `fix_board` | | | ● |
 
-### 8.2 Planner
+The solver has no way to ask the learner anything. That is the access matrix, not a request in a prompt.
 
-Reads the learner record and any uploaded material, then writes a plan. It never teaches. Prompt requirements:
+### 8.2 The reader
 
-- Name 3–5 concrete objectives in the form "the learner can …", never "understand X".
-- List prerequisites, and for each say whether the record shows it is already held. If a load-bearing prerequisite is missing, fold a short recap into the plan rather than assuming it.
-- Choose a starting point that respects the record. Re-teaching something at mastery 0.9 wastes the learner's time and is the most common failure of systems like this.
-- Sequence 5–9 steps, each with the representation it will use: derivation, diagram, simulation, worked example, trace.
-- Estimate minutes honestly. Learners plan around it.
+Reads the question and everything attached, and is the **only** agent that sees the attachments (§13). It never writes on the board. Prompt requirements:
 
-### 8.3 Tutor
+- Restate the question in full in the plan's `problem` field: every number, unit, symbol and condition, exactly what is asked, and a description of any figure precise enough to redraw. Several questions are all listed, numbered, in order. Anything left out is lost, because the solver sees only these words.
+- Do not solve it beyond what planning needs.
+- A bare topic rather than a question means "explain this, and work one typical example".
+- **Ask only when it must.** One specific `ask_learner` when part of an attachment cannot be read, or the question can be taken two ways that lead to different answers. Never to confirm what was written, never to ask the level, never for permission to begin. When a standard assumption exists, make it and state it.
+- Choose `subject` (the closest of the eight, or `general`) and `level` from the question itself.
+- `objectives` are the stages of the solution, in order. `steps` are the board steps, three to nine: open with what is given and asked, draw the situation early if it can be drawn, close with the answer and a check.
+
+### 8.3 The solver
 
 The main loop. Prompt requirements:
 
 - **Board and voice do different jobs.** `say` carries meaning and is read aloud, so it must be plain spoken language with no markup, no LaTeX, and no symbols a voice cannot pronounce — "d by d x", not `\frac{d}{dx}`. The board carries notation and structure. They complement; they never duplicate.
-- **Show before generalizing.** A worked instance precedes the general rule, in every subject.
-- **Check early.** First `check_understanding` no later than step 3. A check only at the end is a test, not teaching.
-- **React to the answer.** A wrong answer is information about a specific misconception. Address that misconception; do not repeat the same explanation more slowly.
-- **Use the sandbox when it earns its place.** Compute a value, run a simulation, sort a real list, integrate an ODE, verify a stoichiometry. Do not run code for arithmetic a person does in their head, and do not narrate the code — narrate the result.
-- **Update the record as evidence appears**, not in a batch at the end.
+- **Given and asked first**, then a picture: forces as vectors, a process as a flow, a structure as a tree, a function as a plot. A picture before any algebra.
+- **One move per step.** Say why, make the move, say what it gave. Do not skip a line the learner would have to stop and work out; do not pad with lines they would not.
+- **Name the method** the first time it is used, in one sentence, so it transfers to the next question.
+- **`compute` for every number** on the board. A wrong figure in a worked solution is worse than none.
+- **Mark the trap** where a common mistake sits next to the correct move.
+- **Finish properly:** the answer with units in a `key` box, a sanity check (size, a limiting case, or substituting back), the one idea worth carrying away, `save_note` with the worked solution, then `end_lesson`.
+- **Do not quiz.** Never put a question to the learner in narration; one they cannot answer is noise.
+- **Unanswerable as given:** say so on the board, state the assumption, carry on.
 - **One `teach_step` per turn.** Batching defeats interruption and reveal sync.
+- **Stopped with a question:** answer that question in one step and stop. The solver is then told what the learner said: carry on from where it stopped, or explain the same point a different way. It does not decide whether they understood and does not test them.
 
-**Adaptation policy** — state this explicitly in the prompt, because left implicit the model always chooses to press on:
+### 8.4 The repairer
 
-| Signal | Response |
-|---|---|
-| Check ≥ 80% | Continue; consider raising the level. |
-| Check 40–79% | Re-explain that one point with a *different representation*, then re-check once. |
-| Check < 40% | Back up to the prerequisite. If already at the prerequisite, drop a level and restart the objective. |
-| Two failed checks on one objective | Stop teaching it. Say plainly what is blocking, teach the prerequisite instead, note it for next session. |
-| Learner says "I don't know" | Never advance. Split the question into a smaller one. |
-| Learner asks something off-plan | Answer in ≤ 2 steps, then return to the plan and say you are returning. |
+Not a solver. Invoked by the runtime, never by another agent, when board operations fail validation twice (§17.3). It receives the rejected operations plus the validator's complaint and returns corrected operations via `fix_board`. Tiny budget. If it fails, the step's operations are dropped and its narration still reaches the learner.
 
-### 8.4 Examiner
 
-Five to eight questions drawn only from what the lesson actually covered — the examiner receives the board history and may not test anything absent from it. Mix recall, application, and one transfer question. Write mastery updates with evidence, schedule reviews, and give feedback that names the misconception rather than announcing right or wrong.
+### 8.5 Getting better: the skills document and the golden set
 
-### 8.5 Repairer
+Prompt work without measurement is guessing. Two small things make it a loop instead:
 
-Not a teacher. Invoked by the runtime, never by another agent, when board operations fail validation twice (§17.3). It receives the rejected operations plus the validator's complaint and returns corrected operations via `fix_board`. Cheapest model, tiny budget. If it fails, the step is dropped and its narration renders as plain text.
+- **The skills document** (`src/agents/skills.ts`) — a short, versioned list of instructions the solver needs because a real run got something wrong. It is appended to the solver prompt under its version number. It grows one line at a time: find the smallest instruction that would have prevented a failure, add it, bump the version, say in the changelog which failure it answers. Entries that stop earning their place are deleted, because every line is paid for on every turn.
+- **The golden set** (`evals/golden.json`) — twelve questions across the subjects with known answers and a list of what a good solution must show. Run it before and after any change to a prompt, a model or the skills document, and compare. There is no automatic runner yet; it is run by hand with a real key.
 
+The rules that go with them, and that the prompts already follow:
+
+- One job per agent, stated first. Then the rules, most important first. No duplicated instructions.
+- Offer each agent only the tools it needs, with short, exact descriptions. A failing tool returns an error the model can act on.
+- Do in code what code can do: arithmetic goes through `compute`, validation through the bus, pacing and phase changes through the runtime. The model is used where there is a real decision.
+- Make uncertainty explicit. The reader marks what it assumed with `ASSUMED:`; the solver checks a doubtful fact before using it and says so when it cannot.
+- Keep prompts short: old turns are compacted, attachments are sent once, and output is capped at what a step needs (reader 3,000 tokens, solver 4,096).
+- Change one thing at a time, and look at the trace to find the single biggest cost before tuning anything else.
 ---
 
 ## 9. Tool catalog
 
-Fifteen tools. Every one has a Zod schema in `src/tools/schemas.ts`, and the JSON Schema sent to the provider is *generated* from that Zod schema so the two can never drift.
+Nine tools. Every one has a Zod schema in `src/tools/schemas.ts`, and the JSON Schema sent to the provider is *generated* from that Zod schema so the two can never drift.
 
 Descriptions sent to the model are part of the product. Write them as instructions to a colleague: what the tool does, when to reach for it, when not to, and one concrete example. A vague description produces vague calls.
 
@@ -416,14 +471,46 @@ interface Tool<I, O> {
   name: string;
   description: string;               // model-facing, written with care
   schema: ZodType<I>;
-  agents: AgentId[];                 // authorization
+  agents: AgentId[];                 // authorization (§8.1)
   parallelSafe: boolean;
   suspends: boolean;                 // waits on the human
   run(input: I, ctx: ToolContext): Promise<ToolOutcome<O>>;
 }
 ```
 
-### 9.1 `teach_step` — the primary tool
+### 9.1 `plan_lesson` — terminal for the reader
+
+```jsonc
+{
+  "title": "Range of a projectile",
+  "level": "school",                          // "intro"|"school"|"undergrad"|"deep"
+  "subject": "physics",                       // one of the eight; settles the board's accent and the solver's guidance
+  "problem": "A ball leaves the ground at 20 m/s, 40 degrees above the horizontal. Ignore air resistance. Find (a) the time in the air and (b) the range.",
+  "objectives": [{ "id": "obj-1", "text": "Find the time in the air" }],
+  "prerequisites": [],
+  "steps": [{ "objective": "obj-1", "representation": "derivation", "note": "Vertical motion gives the time" }],
+  "estimatedMinutes": 6
+}
+```
+
+`problem` is the load-bearing field: the solver never sees the attachment, only this.
+
+### 9.2 `ask_learner` — suspends; the reader only
+
+One clarifying question, then wait.
+
+```jsonc
+{
+  "question": "The exponent in the second term is cut off in your photo. Is it x squared or x cubed?",
+  "kind": "choice",                    // "free" | "choice" | "confirm" | "number"
+  "options": ["x squared", "x cubed"], // required for "choice"
+  "why": "the answer differs depending on which"   // shown in the trace, not to the learner
+}
+```
+
+Returns `{ answer, elapsedMs, skipped }`. On **Skip** the reader proceeds on the most likely reading and says which it chose.
+
+### 9.3 `teach_step` — the primary tool
 
 One narrated step with its board operations. Called once per turn.
 
@@ -432,46 +519,12 @@ One narrated step with its board operations. Called once per turn.
   "say": "Plain spoken narration, 2 to 5 sentences. Read aloud verbatim by a speech engine, so no markdown, no LaTeX, no bullet characters, and no symbols. Write 'd by d x' not the notation. Carry the meaning here; put the notation on the board.",
   "board": [ /* board operations, §10 */ ],
   "clear": false,                      // true starts a fresh board page
-  "objective": "obj-2",                // which plan objective this serves
+  "objective": "obj-2",                // which stage of the plan this serves
   "pace": "normal"                     // "slow" | "normal" | "quick" — affects reveal timing
 }
 ```
 
 Returns `{ ok, opsRendered, page, boardFull }`. When `boardFull` is true, the next step must set `clear: true` — say so in the result string, because models otherwise keep writing off the bottom of the page.
-
-### 9.2 `ask_learner` — suspends
-
-Asks one question and waits. This is the tool that makes the system a tutor.
-
-```jsonc
-{
-  "question": "Before we go on — what do you think happens to the current if I double the resistance?",
-  "kind": "free",                      // "free" | "choice" | "confirm" | "number"
-  "options": ["It doubles","It halves","No change","It depends"],  // required for "choice"
-  "why": "Checking whether they've internalised the inverse relationship"  // shown in the trace, not to the learner
-}
-```
-
-Returns `{ answer, elapsedMs, skipped }`. The learner can press **Skip** — `skipped: true` means they chose not to answer, which is not the same as being wrong, and the prompt says so.
-
-### 9.3 `check_understanding` — suspends
-
-Two to four questions at once, scored automatically.
-
-```jsonc
-{
-  "questions": [
-    { "q": "Which of these is conserved in an elastic collision?",
-      "options": ["Momentum only","Kinetic energy only","Both","Neither"],
-      "answer": 2,
-      "why": "Elastic means kinetic energy is conserved as well as momentum.",
-      "concept": "elastic-collision" }
-  ],
-  "onFail": "prerequisite:momentum-conservation"   // optional hint for remediation
-}
-```
-
-Returns `{ score, perQuestion:[{ chosen, correct, concept }], summary }`. The runtime uses `score` to decide whether to enter `REMEDIATING` before the tutor's next turn — the branch is enforced in code, not left to the model's judgement.
 
 ### 9.4 `run_code`
 
@@ -486,112 +539,50 @@ Executes in the sandbox (§11).
 }
 ```
 
-Returns `{ ok, stdout, result, figures: [figureId], timedOut, error }`. Figures are stored in the session's figure store and placed on the board with the `figure` op. Truncate `stdout` to 2 KB. On error, return the exception text — the model is expected to fix and retry, twice at most.
+Returns `{ ok, stdout, result, figures: [figureId], timedOut, error }`. Figures are stored and placed on the board with the `figure` op. Truncate `stdout` to 2 KB. On error, return the exception text — the model is expected to fix and retry, twice at most.
 
 ### 9.5 `compute`
 
-Fast mathjs evaluation. No sandbox, no Pyodide, milliseconds. Use for arithmetic, unit conversion, and symbolic simplification.
+Fast mathjs evaluation. No sandbox, no Pyodide, milliseconds. Arithmetic, unit conversion, symbolic simplification. `parallelSafe: true`.
 
 ```jsonc
 { "expressions": ["9.81 * 2.5^2 / 2", "unit(3, 'eV') to 'J'"], "precision": 4 }
 ```
 
-Returns `{ results: [{ expr, value, error? }] }`. `parallelSafe: true`.
+Returns `{ results: [{ expr, value, error? }] }`.
 
-### 9.6 `search_materials`
+### 9.6 `wiki_lookup`
 
-BM25 over the learner's uploaded documents (§13).
-
-```jsonc
-{ "query": "definition of activation energy", "k": 4, "docId": "doc_abc" }
-```
-
-Returns `{ hits: [{ docId, title, page, snippet, score }] }`. Snippets capped at 400 characters each. If no materials are loaded, returns `ok: true` with an empty list and a note — never an error, or the model wastes turns retrying.
-
-### 9.7 `wiki_lookup`
-
-The only network tool besides the model provider. Wikipedia's REST API sends permissive CORS headers, so this works with no backend:
-
-- search — `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={q}&format=json&origin=*`
-- summary — `https://en.wikipedia.org/api/rest_v1/page/summary/{title}`
+The only network tool besides the model gateway. Wikipedia's REST API sends permissive CORS headers, so this works with no backend.
 
 ```jsonc
 { "query": "Krebs cycle", "mode": "summary" }
 ```
 
-Returns `{ title, extract, url }`, extract capped at 1200 characters. Off by default; a toggle in settings turns it on, because some learners will be on metered or restricted networks. The prompt tells the tutor to use it for dates, names, and constants — not for explanations, which are its own job.
+Returns `{ title, extract, url }`, extract capped at 1200 characters. Off by default; a toggle in Settings turns it on. For dates, names and constants — not for explanations, which are the solver's own job.
 
-### 9.8 `recall_learner`
+### 9.7 `save_note`
 
-```jsonc
-{ "concepts": ["derivative","chain-rule"], "includeRecentLessons": true }
-```
-
-Returns the mastery record for those concepts plus known misconceptions, preferred pace, and the last three lesson titles. With no `concepts`, returns a compact profile summary rather than the whole record — the whole record can be large, and it is re-sent on every subsequent turn.
-
-### 9.9 `update_learner`
+The worked solution, for the learner to keep and export as Markdown.
 
 ```jsonc
-{
-  "updates": [
-    { "concept": "chain-rule", "mastery": 0.7, "evidence": "Applied it correctly to sin(x^2) unprompted" },
-    { "concept": "product-rule", "misconception": "Adds the derivatives instead of using the product form" }
-  ]
-}
+{ "title": "Range of a projectile", "markdown": "…", "tags": ["kinematics"] }
 ```
 
-Mastery is 0–1. The store applies the update through the decay-and-blend rule in §12.2 rather than overwriting, so a single lucky answer cannot jump a concept to mastered.
+Markdown here *may* use LaTeX and formatting — unlike `say`, this is read, not spoken. One note per question solved.
 
-### 9.10 `save_note`
-
-Appends a section to the lesson notebook, which the learner exports as Markdown.
-
-```jsonc
-{ "title": "Integration by parts", "markdown": "…", "tags": ["calculus"] }
-```
-
-Markdown here *may* use LaTeX and formatting — unlike `say`, this is read, not spoken.
-
-### 9.11 `schedule_review`
-
-```jsonc
-{ "concept": "chain-rule", "dueInDays": 3, "reason": "Shaky on composite functions" }
-```
-
-Feeds the "Due for review" list on the home screen (§12.3).
-
-### 9.12 `plan_lesson` — terminal for planner
+### 9.8 `end_lesson` — terminal for the solver
 
 ```jsonc
 {
-  "title": "Integration by parts",
-  "level": "undergrad",                       // "intro"|"school"|"undergrad"|"deep"
-  "objectives": [{ "id": "obj-1", "text": "The learner can choose u and dv sensibly" }],
-  "prerequisites": [{ "concept": "product-rule", "held": true, "recap": false }],
-  "steps": [{ "objective": "obj-1", "representation": "derivation", "note": "Derive from the product rule" }],
-  "estimatedMinutes": 12
+  "summary": "What the question was, the method, and the answer, in two or three plain sentences.",
+  "objectivesMet": ["obj-1", "obj-2"],
+  "objectivesMissed": [],
+  "nextTopics": ["Launching from a height"]
 }
 ```
 
-### 9.13 `end_lesson` — terminal for tutor
-
-```jsonc
-{
-  "summary": "…",
-  "objectivesMet": ["obj-1","obj-2"],
-  "objectivesMissed": ["obj-3"],
-  "nextTopics": ["Reduction formulae"],
-  "runExam": true
-}
-```
-
-### 9.14 `finish_exam` — terminal for examiner
-
-```jsonc
-{ "score": 0.8, "strengths": ["…"], "gaps": ["…"], "verdict": "Ready to move on" }
-```
-
-### 9.15 `fix_board` — repairer only
+### 9.9 `fix_board` — the repairer only
 
 ```jsonc
 { "ops": [ /* corrected board operations */ ] }
@@ -632,7 +623,8 @@ Every op may carry `id` (so `annotate` can target it) and `col: "main" | "side"`
 - Reveal progressively, in sync with narration (§14).
 - Auto-shrink type by one step when a page approaches full, then paginate and report `boardFull` back through the tool result.
 - Scale a 16:9 board to any viewport. Below 640px, switch to 4:5 and move the side column underneath.
-- Board pages persist for the whole session — the learner can scroll back through everything written, which is the main advantage a whiteboard has over a video.
+- **The board is one column that grows downwards** (`BoardScroll`). Nothing is wiped: every step stays where it was written and the learner can scroll up to it. Where the solver starts a fresh page, the board draws a rule. An answer to the learner's question is set apart in its own box.
+- The board follows the step being explained. If the learner scrolls up, it stops following and offers **Back to the current step**, because a page that moves while you read it is worse than one that falls behind.
 
 ### 10.3 Validation
 
@@ -650,13 +642,16 @@ Rejection returns `ok: false` with the reason, and the model retries. Twice fail
 
 ### 10.4 Subject packs
 
-Each subject contributes a prompt fragment, preferred ops, an accent color, a starter topic tree, and worked examples of good board usage.
+Eight subjects. Each contributes a prompt fragment for the solver, an accent color, a worked example of good board usage, and a list of typical topics shown on the landing page. The reader chooses the subject from the question; the learner never picks one.
 
 - **Math** — `derive`, `plot`. Show a concrete case before the general rule. Flag common errors with `annotate` + `warn`.
 - **Physics** — `vectors`, `diagram`, plus `run_code` for simulation. Always name the system and its assumptions. Units on every quantity. Sanity-check magnitude at the end.
 - **Chemistry** — `reaction`, `diagram`. Balance equations on the board one step at a time, never in a single jump. Say what the electrons are doing.
 - **Computer Science** — `code` with `focus`, `diagram` for data structures, `table` for complexity, `run_code` to actually execute the example. Trace a small input by hand before running it.
 - **Biology** — `diagram` with `cycle` and `flow`, `table` for comparisons. Structure first, then function, then structure explaining function.
+- **Finance** — `table`, `plot`, `math`. One concrete case with real figures before any formula. Currency and period on every number. `compute` for every figure. Teaches the idea, never what to buy.
+- **Psychology** — `diagram`, `table`, `bullets`. A concrete case or classic study before the concept. Observation kept apart from explanation, and replication failures said plainly. Never diagnoses.
+- **Any other subject** — picks the representation the topic calls for: a process is a flow, a comparison a table, a hierarchy a tree. Says once what the board cannot draw and carries on.
 
 ---
 
@@ -672,124 +667,123 @@ main thread ──postMessage──► iframe (null origin) ──► worker ─
 ### Rules
 
 - **Timeout 10 s.** On expiry, terminate the worker and return `timedOut: true`. Never leave a runaway loop holding the tab.
-- **Memory guard.** Fresh worker per execution beyond a size threshold; recycle the Pyodide instance across calls within a lesson, since cold start is 3–5 seconds.
+- **Memory guard.** Fresh worker per execution beyond a size threshold; recycle the Pyodide instance across calls within a session, since cold start is 3–5 seconds.
 - **No network from inside.** Override `fetch`, `XMLHttpRequest`, and `WebSocket` in the worker scope before user code runs. The `connect-src` CSP is a second layer, not the only one.
 - **Lazy load.** Pyodide loads on first Python use, with visible progress on the board ("setting up Python, about 5 seconds"). JavaScript execution needs no load at all — prefer it for anything that does not need scientific libraries.
 - **Packages.** Allow `numpy`, `sympy`, `scipy`, `matplotlib`, `pandas` via `micropip` from the Pyodide CDN. Anything else is refused with a message telling the model what is available.
-- **Figures.** Patch matplotlib to a non-interactive backend, capture `savefig` to a PNG data URL, store under a `figureId`, return the id. The model places it with the `figure` op. Cap at 4 figures per lesson step.
+- **Figures.** Patch matplotlib to a non-interactive backend, capture `savefig` to a PNG data URL, store under a `figureId`, return the id. The model places it with the `figure` op. Cap at 4 figures per step.
 - **Self-hosting option.** Pyodide from a CDN is the default; document a `npm run vendor:pyodide` script that copies it into `public/` for offline or restricted networks, and note that it adds roughly 10 MB to the deploy.
-- **Determinism.** Seed `random` and `numpy.random` per lesson so a replayed tape produces the same figures.
+- **Determinism.** Seed `random` and `numpy.random` per question so a repeated one produces the same figures.
 
-Loading Pyodide from a CDN is the one external dependency at runtime besides the model API. If a network blocks it, `run_code` returns a clear failure and the tutor continues without it — teaching must never depend on the sandbox.
-
----
-
-## 12. Learner memory
-
-This is what makes a second session better than a first. It lives in IndexedDB and never leaves the device.
-
-### 12.1 Records
-
-```ts
-interface LearnerProfile {
-  id: 'default';
-  createdAt: number;
-  pace: 'slow' | 'normal' | 'quick';
-  level: Record<SubjectId, Level>;
-  voice?: { name: string; rate: number };
-  totals: { lessons: number; minutes: number };
-}
-
-interface ConceptRecord {
-  concept: string;                 // slug: 'chain-rule'
-  subject: SubjectId;
-  mastery: number;                 // 0..1
-  confidence: number;              // 0..1, how much evidence supports the mastery figure
-  lastSeen: number;
-  timesSeen: number;
-  misconceptions: { text: string; seen: number; resolved: boolean }[];
-  evidence: { at: number; delta: number; note: string }[];   // last 10 only
-  dueAt?: number;
-}
-```
-
-### 12.2 Update rule
-
-Never overwrite. Decay by time since last seen, then blend the new observation weighted by confidence:
-
-```ts
-const days = (now - rec.lastSeen) / 86_400_000;
-const decayed = rec.mastery * Math.exp(-days / 30);      // ~30-day half-life-ish
-const w = 0.25 + 0.35 * observationConfidence;           // 0.25..0.60
-rec.mastery = clamp01(decayed * (1 - w) + observed * w);
-rec.confidence = clamp01(rec.confidence * 0.9 + 0.2);
-```
-
-One lucky guess cannot mark a concept mastered; one slip cannot erase a month of work. Write the rationale in a comment, because someone will otherwise "simplify" it to an assignment.
-
-### 12.3 Spaced review
-
-`dueAt` follows a simple expanding schedule — 1, 3, 7, 16, 35 days — advancing on a passed review and resetting to the previous interval on a failure. The home screen shows **Due for review** with the concepts and a one-tap "review these" lesson that seeds the planner with them.
-
-### 12.4 Visibility and control
-
-The learner sees their own record: a per-subject concept list with mastery bars, misconceptions in plain language, and per-concept **Reset**. Plus a global **Export** (JSON), **Import**, and **Erase everything**. A hidden profile that shapes the teaching without being inspectable would be the wrong thing to build.
+Loading Pyodide from a CDN is the one external dependency at runtime besides the model API. If a network blocks it, `run_code` returns a clear failure and the solver continues without it — a solution must never depend on the sandbox.
 
 ---
 
-## 13. Materials and retrieval
+## 12. What is kept about the learner
 
-Optional. The learner drops in their own notes, a syllabus, a past paper, or a textbook chapter, and the agents can search it.
+Almost nothing, by design. There is no learner profile, no mastery record, no misconceptions list, and no review schedule. The earlier product had all four; they were removed with the lesson flow, and nothing reads or writes them now.
 
-- **Ingest** — `.txt`, `.md`, `.pdf` (via `pdf.js`, already a browser library), and pasted text. Everything happens in a worker; a 300-page PDF must not freeze the UI.
-- **Chunk** — roughly 800 characters with 100 of overlap, split on headings and paragraph boundaries, keeping page numbers so citations can say "page 42".
-- **Index** — BM25 built in the browser and stored in IndexedDB. Deliberately not embeddings: embeddings need either an API call per chunk (cost, latency, a second key) or a 25 MB model download. BM25 over a personal 40-page document is good enough and instant.
-- **Optional upgrade** — a settings toggle for local embeddings via `transformers.js` with `all-MiniLM-L6-v2`, downloaded once and cached. Hybrid score = 0.5 BM25 + 0.5 cosine. Build this only after everything else works.
-- **Grounding** — when materials exist, the planner prompt says to prefer the learner's own notation and terminology, and to teach the syllabus's framing rather than a generic one. This is the feature that makes it useful for an actual course.
-- **Limits** — 20 MB total, 10 documents, oldest evicted with a warning.
+What is kept, on the learner's own device only (§20):
+
+- **Solved questions** — the last 25, each with its title, the question as typed, the board pages, the transcript, and the saved notes. Shown on the Solve screen as **Recently solved**.
+- **Figures** drawn by `run_code` for those solutions.
+- **Settings** — board theme, voice, speed, tutor tier, toggles, budget.
+- **The license and the model key** (§5.7).
+
+Attachments are not kept. They exist in memory for the one request that sends them to the reader.
+
+---
+
+## 13. Attachments
+
+The learner can attach what the question is in, instead of or as well as typing it (`src/solve/attachments.ts`).
+
+- **Accepted:** images (PNG, JPEG, WebP, GIF), PDFs, and text files (`.txt`, `.md`, `.csv`, `.tex`). Up to four at once, 8 MB each. Anything else is refused with a sentence saying what is accepted.
+- **Three ways in:** the **Attach a file** button, pasting a screenshot into the question box, and dropping a file on it.
+- **Images are downscaled in the browser** to 1600 px on the long side and re-encoded as JPEG before sending. A phone photo is several megabytes; the model reads the smaller one just as well.
+- **PDFs go as they are**, as a file content part. No PDF library, no local text extraction.
+- **A text file is not an attachment.** Its contents are appended to the question.
+- **Sent once, to the reader only.** Attachments ride on the reader's first message as content parts (§6) and are never re-sent. The reader restates everything in `problem`, and the solver works from that. A picture re-sent on every one of thirty turns is what would make uploads expensive; restating it once is what keeps a question with a screenshot the same price as one without.
+- **Nothing is uploaded anywhere else.** Files are read in the browser and travel only inside the request to the model. They are not written to storage, the trace, or the saved solution.
+- **The demo has attaching disabled**, and says so: it replays prepared walkthroughs and cannot read anything.
 
 ---
 
 ## 14. Voice and synchronization
 
-- `speechSynthesis.speak(new SpeechSynthesisUtterance(step.say))`.
-- Board ops for a step reveal across the duration of that step's narration. Use the `boundary` event to advance reveals at word boundaries; fall back to an estimated words-per-minute timer where `boundary` never fires (Safari is unreliable, and some Android voices fire it once).
-- Voices come from `getVoices()`, which on Chrome is empty until `voiceschanged` fires — wait for it. Remember the choice. Prefer a local voice matching the UI language.
+### Narration
+
+- `speechSynthesis.speak(new SpeechSynthesisUtterance(sentence))`, one utterance per sentence, and a long sentence is split again at its commas (about 150 characters). Engines drop or truncate long utterances.
+- **Only the voice ends a step.** Where word-boundary events never arrive, a clock drives the *reveal*, but it stops just short and waits for the voice to finish. The estimate is often shorter than the real speech, and ending the step on it starts the next one, which cuts the voice off mid-sentence. That was a real bug.
+- A 70 ms gap after `cancel()` before the next `speak()`: Chrome drops an utterance spoken straight after a cancel. A `resume()` every five seconds while speaking: Chrome silently pauses long speech.
+- Board ops for a step reveal across the duration of that step's narration. The `boundary` event advances reveals at word boundaries; where it never fires (Safari, some Android voices) an estimated words-per-minute timer does.
 - Rate control 0.75×–1.5× applies to speech and to reveal timing together.
-- **Muted mode must be fully usable.** With voice off, the board advances on a timer sized to the narration length and the transcript panel shows the `say` text. Anyone in a library, or on a browser without speech synthesis, gets the entire lesson.
-- Speech stops on pause, on step change, on interruption, on abort, and on unmount. Call `speechSynthesis.cancel()` in every cleanup path — queued utterances talking over each other is the single most common bug in this design, and it is not subtle.
-- Chrome cuts long utterances after roughly 15 seconds when the tab is backgrounded. Split `say` into sentence-level utterances and queue them; this also gives finer reveal sync.
+- **Muted mode must be fully usable.** With voice off, the board advances on a timer sized to the narration length and the transcript panel shows the `say` text.
+- Speech stops on pause, on a raised hand, on abort, and on unmount. Call `speechSynthesis.cancel()` in every cleanup path — queued utterances talking over each other is the single most common bug in this design.
 - Respect `prefers-reduced-motion`: reveals become instant, drawing animation is skipped, narration is unaffected.
+
+### Choosing the voice
+
+A device can offer a clean neural voice and a twenty-year-old robotic one side by side, and the browser default is often the robot. So voices are ranked (`voiceQuality` in `src/voice/speech.ts`): neural and premium voices first, the old formant engines last, novelty voices never first, and voices for another language excluded. The best one for the learner's language is used unless they picked another.
+
+The Solve screen has a picker showing the few best voices, a **Hear it** preview, and a **No voice, text only** option. The same list is in the transport bar while solving. Quality still depends on what the device has installed; a paid or downloaded neural voice is the upgrade path (§26).
+
+### Pacing: every step is spoken, in order
+
+The model writes steps several times faster than a voice can speak them. Left alone it would finish the solution while the learner is hearing step one, steps would be skipped mid-sentence, and a raised hand would land steps away from where they are. Two rules prevent that, and both are load-bearing:
+
+- **The screen plays steps from a playlist.** `pos` is the first entry not yet spoken, and a step that has not been reached is not on the board. An answer to the learner's question jumps the queue: it is slotted in at `pos`, ahead of the step it interrupted, so they hear their answer next rather than after whatever the model had already written. The interrupted step is then explained again, without being rubbed out and rewritten.
+- **The session holds the model one step ahead of the voice.** The loop awaits `beforeTurn`; with `pacing: true` the session resolves it only when at most one written step is unspoken, and the screen calls `session.stepNarrated()` as each step finishes. One step of lookahead means no silence between steps, and at most one wasted step on an interruption. A raised hand and an abort both release the hold immediately.
+
+### The watchdog
+
+Speech engines sometimes accept an utterance and never finish it: no audio device, a voice that failed to load, Chrome's stuck queue. Because every step now waits on its narration, each sentence has a watchdog. The limit is on silence, not on length: a voice still producing word boundaries is alive however long it runs. After two and a half times a sentence's expected length plus five seconds with nothing heard, it is cancelled and the rest of the step continues on a clock. A stuck voice can slow a solution down; it cannot freeze it.
 
 ---
 
 ## 15. Screens and interaction
 
-No router. One page, five states in React state — which is what keeps it working on a GitHub Pages subpath and from `file://`.
+No router. One page, a handful of states in React state (`src/App.tsx`). The only thing read from the URL is the query flag `?activate`, which Lemon Squeezy's post-purchase redirect uses to open the activation screen.
 
-1. **Setup** — provider picker, key field, model field, link to where to get a key, and **Try it without a key** (mock adapter). One line about where the key is stored.
-2. **Home** — five subject cards, **Due for review**, recent lessons, materials.
-3. **Topic** — starter tree for the subject plus free text ("or ask for anything"), level selector, and a **What I know** peek at the relevant concept records.
-4. **Board** — the lesson. Board fills the screen; a thin rail holds the plan with the current objective marked, and the transport controls: play/pause, previous/next step, replay step, rate, voice, mute, transcript, **Raise hand**, **Stop**.
-5. **Review** — exam result, mastery diff (what moved, and why), notes with **Copy as Markdown** and **Download**, **Save lesson**, and **Export trace** for debugging.
+1. **Landing** — the marketing page (§29). Shown to anyone without a license on this device.
+2. **Activate** — one field for the license key, with one line saying where it is stored. Success goes straight to Solve.
+2a. **Own key** — one field for an API key (§5.8), with where it is stored, where it goes, and who gets paid. Reachable from the landing page, the activation screen and the demo.
+3. **Solve** — the main screen. One box: "What do you want solved?", the attachment row, **Solve it**, and the voice picker. Above it, the plan line: plan name and roughly how many questions are left this month. Below it, **Recently solved**, each with **Replay, free**. A question that has been solved before is offered as a free replay before it is sent again. No subject picker, no level selector. `Ctrl+Enter` solves.
+4. **Board** — the solution. The board is the screen, edge to edge, and scrolls. Above it is one thin line: what is happening, the title, and **Plan**, **Transcript**, **Details** and **Stop and leave**. The plan with its stages and the budget meter open as a side panel from **Plan** and are closed by default. Under the board is one box to ask from (`src/ui/Composer.tsx`): a text field with a microphone and a send button, and the playback controls inside it — pause, previous/next step, replay step, mute, speed and voice. When the last step has been explained, the box offers **See the summary** above it; it does not jump to the summary by itself.
+5. **Review** — the summary, **Where to go next**, the worked solution with **Copy as Markdown** and **Download**, **Solve another question**, and **Export trace**.
+
+### The demo
+
+**Try the demo** opens the Solve screen with five prepared questions, one per bundled walkthrough (`src/solve/examples.ts`). Picking one and pressing **Solve it** replays that walkthrough through the real session: the same pacing, voice, board and raise-hand. The box is read-only and attaching is disabled, and the screen says so — the demo can only answer what it has a walkthrough for. It is labelled **Demo** throughout, with a way to see plans.
 
 ### Agent visibility
 
-The learner should be able to tell what the system is doing without being shown a wall of JSON. A single status line above the board, in plain language: "planning the lesson", "working that out in Python", "checking your notes on page 42". A collapsible **Details** drawer shows the real trace — turn number, tool calls, arguments, results, token usage — for anyone who wants it. Never surface raw tool JSON in the main view, and never hide a failure inside a spinner.
+The learner should be able to tell what the system is doing without being shown a wall of JSON. A single status line above the board, in plain language and driven by real state: "Reading your question", "Explaining this step", "Working that out in Python", "Listening to your question". A collapsible **Details** drawer shows the real trace — turn number, tool calls, arguments, results, token usage — for anyone who wants it. Never surface raw tool JSON in the main view, and never hide a failure inside a spinner.
 
-### Raise hand
+### Stop and ask
 
-The interruption path, and the feature that makes this feel like a tutor:
+The interruption path, and the part that makes this feel like a teacher.
 
-1. Learner presses the button or `H`. Speech cancels immediately; the board freezes.
-2. A small input appears over the board. Voice input via `SpeechRecognition` where available, silently absent where not.
-3. The question is injected as the next user message with the current board page and step id attached as context.
-4. `TEACHING` resumes. The tutor prompt says: answer in at most two steps, mark them as an aside, then return to the plan and say you are returning.
-5. Interruptions count toward the turn budget, and the learner can see that in the budget meter.
+1. The learner starts typing in the box under the board, presses `H` to jump to it, or presses the microphone (shown where the browser has speech recognition), which starts listening at once. Speech stops immediately.
+2. They type or say their question and send it. Nothing is explained while there is text in the box; emptying it, or `Esc`, lets the explanation carry on.
+3. The question is injected as the solver's next user message, and the pacing hold is released so it is answered now.
+4. The solver answers in **one** step, written into its own box on the board and spoken next, ahead of anything it had already written.
+5. Above the box: **Did that answer your question?** — **Yes, carry on** or **Explain it another way**; asking something else is just typing again. The solution is held until they choose (`Session.resumeAfterAside`).
+6. *Yes*: the solver is told to carry on from exactly where it stopped, and the step that was interrupted is explained again from its start. *Another way*: it explains the same point differently — a picture instead of algebra, numbers instead of symbols — and they are asked again.
+
+The learner decides when they have understood. The solver may not decide it for them and may not quiz them to find out; this is enforced by the session holding the loop, not by the prompt.
+
+A question asked after the solution has finished works the same way: the solver is run again from the end of its own conversation, so it remembers the whole solution.
+
+In the demo there is no model to answer, so the panel says so: the walkthrough simply carries on with its next step.
+
+### The clarifying question
+
+When the reader asks (§8.2), a panel appears over the board with the question, the options if it offered any, and **Skip**. Nothing proceeds until the learner answers or skips.
 
 ### Keyboard
 
-`Space` pause/resume · `←` `→` step · `R` replay step · `H` raise hand · `M` mute · `?` shortcuts · `Esc` stop. All controls reachable by tab, with visible focus.
+`Space` pause/resume · `←` `→` step · `R` replay step · `H` stop and ask · `M` mute · `?` shortcuts · `Esc` stop. All controls reachable by tab, with visible focus.
 
 ---
 
@@ -804,13 +798,13 @@ The board is the product. Everything else is a thin rail around it.
 
 App chrome is a neutral `#0E1113` rail. The board never sits inside a rounded card with a drop shadow.
 
-**Subject accents**, one each, used for headings, the active rail item, and `key` boxes: math `#4C6EF5`, physics `#E8590C`, chemistry `#0CA678`, computer science `#7048E8`, biology `#C2255C`.
+**Subject accents**, one each, used for headings, the active rail item, and `key` boxes: math `#4C6EF5`, physics `#E8590C`, chemistry `#0CA678`, computer science `#7048E8`, biology `#C2255C`, finance `#F08C00`, psychology `#1098AD`, any other subject `#74B816`.
 
 **Type.** Atkinson Hyperlegible Next for board text and UI — it was designed for low-vision readability, which is the right argument for a teaching tool, and it does not look like every other site. IBM Plex Mono for code and data labels. KaTeX keeps its own fonts. One scale used consistently: 48 / 32 / 24 / 18 / 15.
 
 **Motion.** Content is *written*, not faded in: text reveals left to right, strokes draw along their path, diagram edges extend from source to target. That drawing motion is the one place to spend effort. Everywhere else — panels, menus, buttons — motion only confirms an action. No hover animation on cards, no staggered page-load entrances.
 
-**Copy.** Sentence case, active voice, no exclamation marks. Buttons name what happens: **Teach me**, **Raise hand**, **Forget key**. The empty topic screen invites a topic rather than describing the feature. Errors say what failed and what to do — "Anthropic rejected that key. Check it in Settings." not "An error occurred."
+**Copy.** Sentence case, active voice, no exclamation marks. Buttons name what happens: **Solve it**, **Raise hand**, **Attach a file**. The empty question box invites a question rather than describing the feature. Errors say what failed and what to do — "You have used this month's credit. It renews with your next payment, or you can move to a bigger plan." not "An error occurred."
 
 **Agent status, not agent theatre.** No fake typing indicators, no "thinking…" with animated dots pretending at depth. The status line says what is actually happening, and it is accurate because it is driven by real phase transitions.
 
@@ -820,52 +814,53 @@ Quality floor, unannounced: responsive to 360px, visible keyboard focus, `prefer
 
 ## 17. Failure handling
 
-An agent loop has more failure modes than a request-response app, and every one of them will happen in front of a learner. Build the table below into `src/runtime/errors.ts` as a real error taxonomy, not scattered try/catch.
+An agent loop has more failure modes than a request-response app, and every one of them will happen in front of a learner. The taxonomy lives in `src/runtime/errors.ts`, not in scattered try/catch.
 
 ### 17.1 Error taxonomy
 
 | Class | Cause | Handling |
 |---|---|---|
-| `AuthError` | 401/403, bad key | Stop. Return to Setup with the field focused and a specific message. Do not retry. |
-| `RateLimitError` | 429 | Exponential backoff with jitter, 3 attempts, honoring `retry-after`. Show "the provider is rate-limiting us, retrying in 4 s". |
-| `OverloadedError` | 529 / 503 | Same backoff. After 3 failures, offer to switch model. |
-| `NetworkError` | offline, DNS, CORS | Distinguish offline (`navigator.onLine`) from CORS. A CORS failure on Anthropic almost always means the header is missing — assert it in a test. |
-| `ContextError` | context window exceeded | Force a compaction pass and retry once. If it recurs, end the lesson gracefully with `end_lesson` semantics. |
+| `AuthError` | 401/403 from the model gateway | The key was rotated (activated on another device) or the subscription lapsed. The board screen says the plan is no longer connected and offers **Reconnect**, which re-activates with the stored license. If that fails, it says why. On an own key there is nothing to reconnect: say the provider refused the key and point to Settings. |
+| `CreditError` | 402, or the key's cap is reached | Stop gracefully and save. On a plan: say the month's credit is used, that it renews with the next payment, and offer the bigger plans. On an own key: say their provider reports no credit left. Never retry. |
+| `RateLimitError` | 429 | Exponential backoff with jitter, 3 attempts, honoring `retry-after`. |
+| `OverloadedError` | 529 / 503 | Same backoff. The gateway also falls back to a second model at the same price (§18). |
+| `NetworkError` | offline, DNS, blocked | Distinguish offline (`navigator.onLine`) from blocked. |
+| `ContextError` | context window exceeded | Force a compaction pass and retry once. |
 | `SchemaError` | tool args fail Zod | Return `ok:false` to the model with the field named. Not fatal. |
 | `ToolError` | tool ran and failed | Return the error text. The model retries or routes around it. |
-| `SandboxError` | timeout, crash, blocked CDN | Return clearly; teaching continues without the sandbox. |
-| `RefusalError` | model declines | Surface plainly, offer to rephrase the topic. Do not retry silently. |
-| `BudgetError` | token or turn budget hit | Graceful close: summarize what was covered, save, offer to continue. |
+| `SandboxError` | timeout, crash, blocked CDN | Return clearly; solving continues without the sandbox. |
+| `RefusalError` | model declines | Surface plainly. Do not retry silently. |
+| `BudgetError` | token or turn budget hit | Graceful close: the summary says it ran out of room, and what was worked out is saved. |
 | `LoopError` | no progress detected | §17.3. |
 
 ### 17.2 Truncation
 
-`stop: 'max_tokens'` in the middle of a tool call yields unparseable arguments. Do not send the fragment back. Discard the partial assistant turn, append a user message saying the previous turn was cut off and to send a smaller `teach_step`, and retry once. Twice in a row means the model is producing oversized steps — halve `max_tokens` for board ops and note it in the trace.
+`stop: 'max_tokens'` in the middle of a tool call yields unparseable arguments. Do not send the fragment back. Discard the partial assistant turn, append a user message saying the previous turn was cut off and to send a smaller `teach_step`, and retry once. Twice in a row means the model is producing oversized steps — halve `max_tokens` and note it in the trace.
 
 ### 17.3 Loop and repair
 
 Detect no-progress conditions and act on them rather than burning the budget:
 
 - **Repeated tool call** — same tool, same arguments hash, three turns running. Inject a user message naming the repetition and asking for a different approach.
-- **No tool call** — the model returns only prose twice in a row. Re-send with `toolChoice: 'required'`.
-- **Board validation failure** — two failures on the same step escalates to the repairer agent (§8.5); if that fails, drop the ops and render `say` as plain text. The learner still gets the explanation.
-- **Objective thrash** — the tutor bounces between objectives four times without a `check_understanding`. Force a check.
+- **No tool call** — the model returns only prose. Nudge once, then re-send with `toolChoice: 'required'`.
+- **Board validation failure** — two failures on the same step escalates to the repairer (§8.4); if that fails, drop the ops and render `say` as plain text. The learner still gets the explanation.
 
 ### 17.4 Degradation ladder
 
-Each rung is a real, tested mode, not a hypothetical:
+Each rung is a real, tested mode:
 
 1. **Full** — everything above.
-2. **No sandbox** — Pyodide blocked or failed. `run_code` unavailable, tutor told so in the system prompt. Everything else works.
-3. **No voice** — speech synthesis missing or muted. Timed reveals plus transcript.
-4. **Scripted mode** — the model cannot use tools reliably (small local models). One call, NDJSON lesson script, no branching, no interruption. Clearly labelled in the UI as the reduced mode, because the difference matters.
-5. **Replay** — no key or no network. Bundled fixture lessons play in full. This is also the demo mode on the landing page.
+2. **No sandbox** — Pyodide blocked, failed, or switched off. `run_code` is not offered and the solver is told so in its prompt. Everything else works.
+3. **No voice** — speech synthesis missing, muted, or stuck. Timed reveals plus the transcript.
+4. **Demo** — no subscription or no network. Prepared walkthroughs play in full through the real session.
 
 ### 17.5 What is never acceptable
 
 - Fabricating a learner's answer to keep the loop moving.
+- Skipping a step's narration, cutting the voice off mid-sentence, or showing the summary before the last step has been explained.
+- Carrying on with the solution before the learner has said their question was answered.
 - A spinner with no explanation for longer than 3 seconds.
-- Losing a lesson in progress on any error.
+- Losing work in progress on any error.
 - Showing a raw stack trace or raw tool JSON in the main view.
 - Silently dropping a board operation without telling the model it was dropped.
 
@@ -873,197 +868,245 @@ Each rung is a real, tested mode, not a hypothetical:
 
 ## 18. Budget and cost control
 
-The learner is paying per token, so the app is accountable for every call.
+The learner has prepaid a fixed credit, and the margin depends on never exceeding it, so the app is accountable for every call. The cost of a solved question is something to engineer down, because it is what a plan is worth.
 
-- **Live meter** in the rail: turns used out of the phase limit, tokens in and out, estimated cost. Cost uses a static price table in `src/providers/pricing.ts`, clearly labelled as an estimate, and shows nothing rather than a wrong number when a model is unknown.
-- **Per-lesson budget** set in settings — default 120k input / 30k output tokens. On 80%, the tutor is told to start wrapping up. On 100%, the runtime forces `end_lesson`. A lesson never dies mid-sentence because of a budget.
-- **Prompt caching** on Anthropic for the system prompt and tool definitions, which are identical across every turn.
-- **Result discipline** — small tool results, truncated aggressively, and a deterministic compaction pass rather than a summarizer model call.
-- **Model split** — planner and examiner default to the fast model, tutor to the strong one, repairer to the cheapest. All overridable.
-- **First-run estimate** — before the first lesson, show a plain sentence: a typical 12-minute lesson costs roughly X on the selected model. Nobody should discover the cost from their provider dashboard.
+**What keeps a question cheap**
+
+Every turn re-sends the system prompt, the tool definitions and the conversation so far. A question is fifteen or so turns, so anything in those three is paid for fifteen times. The levers, biggest first:
+
+- **Do not send it at all.** A solved question is saved on the device. Asking the same thing again — the same words, ignoring case, spacing and punctuation — offers **Replay it, free** before anything is sent, and every entry under **Recently solved** has the same button. A replay goes through the real session, board, voice and pacing from the saved record (`src/providers/replay.ts`): no request, no tokens, and the meter says zero. It cannot answer a new question; the panel says so.
+- **Say each thing once.** The board's thirteen operation shapes are listed compactly in the system prompt. The schema generated for `teach_step` said the same thing again in about two thousand tokens, on every turn. The model is now sent only the list of operation names (`BOARD_OPS_WIRE`); the full Zod schema still checks every call at the bus and names the offending field when one is wrong. A tool declares this with `wire`.
+- **Send only what the model reads.** `minifySchema` strips from every tool schema the keys that only a validator needs: length, size and numeric limits, patterns, `additionalProperties`, a `const` that repeats an `enum`. Limits also stay off the wire because some services check a call against the schema themselves and throw the whole reply away over a string a few characters too long; and a tuple is sent as a plain array, because the stricter services refuse the older tuple form. Tool descriptions are a few sentences, not an essay; the worked example is one line of JSON, not indented.
+- **A budget, held by a test.** The solver's fixed cost per turn — system prompt plus tool definitions — was about 6,050 tokens and is now about 3,750. A test fails if it passes 4,200, because this number creeps.
+- **Few tools.** The solver is offered five tools (six with Wikipedia on) and the reader two. Every definition is paid for on every turn.
+- **Few turns.** One `compute` call for all the numbers a step needs. `save_note` and `end_lesson` in the same turn.
+- **A short conversation.** Compaction starts at about 8,000 tokens of conversation and keeps the opening and the last four turns; everything older becomes a short deterministic summary of what is on the board. On a service with no prompt cache this is the difference between a long question costing linearly and quadratically.
+- **Prompt caching.** Through OpenRouter every request asks for the prefix to be cached, so it is read back at a tenth of the price. Anything that changes the prefix mid-solution — reordering tools, editing the system prompt per turn — throws that away, so do not.
+- **Cheapest model that solves well.** The standard tier runs every agent on a small, fast model (`src/providers/managed.ts`). Re-check the gateway's price list when it changes.
+- **Attachments sent once** (§13), and **capped output** (§8.5).
+- **A fallback model at the same price**, so an outage does not change the cost.
+
+What was looked at and not done: semantic caching with embeddings (an exact match after tidying catches the common case — the same homework question — without a second model or a download); compressing prompts with a model (it costs a call to save part of one); several steps per turn (fewer turns, but a raised hand would waste everything already written).
+
+**What the learner sees**
+
+- **Plan line** on the Solve screen and in Settings: the plan and roughly how many questions are left this month, from the key's remaining credit read live from OpenRouter. Shows nothing rather than a wrong number when the read fails.
+- **Live meter** in the rail: turns, tokens in and out, and the cost of this question. The gateway reports what each turn cost; the meter shows that figure and falls back to the static price table (`src/providers/pricing.ts`, labelled an estimate) only when it is missing.
+- **Pre-flight check** — on the Solve screen, if no credit is left, **Solve it** is disabled and the bigger plans are offered; if little is left, it says a long solution may stop early.
+
+**The limits**
+
+- **Per-question budget** — default 200k billable input / 30k output tokens, with Short, Normal and Long presets in Settings. A cached token counts as a tenth of a fresh one, matching what it costs. At 80% the solver is told to wrap up. At 100% the runtime closes the solution. It never dies mid-sentence because of a budget.
+- **Model tiers** — the standard tier is the default and is what the "questions per month" figures are computed from. The deeper tier moves only the solver to a stronger model, and Settings says plainly that it uses questions about eight times as fast.
+- **The hard stop is not ours.** OpenRouter refuses requests once the key's cap is hit. Client-side budgeting is for a good experience; the cap is what protects the margin.
 
 ---
 
 ## 19. Security and privacy
 
-- The key is the user's, stored in their browser, sent only to the endpoint they configured. Say so once, plainly, at setup.
-- CSP `connect-src` allowlists the provider hosts, the Wikipedia API, the Pyodide CDN, and the user's custom base URL. Nothing else.
+- Questions, uploads and solutions go from the browser straight to OpenRouter. Our functions never see any of them. Say so once, plainly, on the landing page and in Settings.
+- CSP `connect-src` allowlists our own origin, the services a key can belong to (§5.8), the Wikipedia API, and the Pyodide CDN. Nothing else.
+- A learner's own key is sent only to the provider that issued it, in a header and never in a URL, and never to our servers.
 - The sandbox is a null-origin iframe with network globals removed inside the worker (§11).
 - No analytics, no error reporting service, no fonts loaded from a third party — self-host the two typefaces.
-- Uploaded materials never leave the browser except as retrieved snippets inside prompts the user's own key is paying for. State this on the upload screen.
-- Trace exports are scrubbed: no key, no raw material text beyond the snippets already sent.
+- Attachments are read in the browser, held in memory for one request, and never written to storage, the trace, or a saved solution.
+- Trace exports are scrubbed: no license key, no model key.
 - `rel="noopener noreferrer"` on every external link.
-- The learner record is portable and erasable, from the UI, in one action, without a confirmation maze.
+- Webhooks are verified by HMAC signature over the raw body, compared in constant time, before anything is parsed (§28).
+- `/api/activate` accepts only licenses from our own store and known plan variants; a valid license from someone else's Lemon Squeezy store must be rejected.
+- We hold payment data nowhere. Lemon Squeezy is the merchant of record and owns cards, invoices, tax, and the customer's email.
 
 ---
 
-## 20. Storage schema
+## 20. Storage
 
 `localStorage` — small, synchronous, needed at boot:
 
 | Key | Contents |
 |---|---|
-| `chalk.key.{provider}` | API key, unless memory-only |
-| `chalk.settings` | provider, model, theme, rate, voice, toggles, budget |
-| `chalk.schema` | schema version integer |
+| `chalk.license` | license key, plan id, activation time |
+| `chalk.key.openrouter` | the provisioned, spend-capped model key |
+| `chalk.key.{provider}` | a learner's own API key, when they use one (§5.8) |
+| `chalk.settings` | theme, voice, speed, tutor tier, toggles, budget, and whose own key is in use |
 
-IndexedDB (`chalk`) — everything else:
+IndexedDB — everything else, via `idb-keyval` (`src/storage/db.ts`):
 
-| Store | Key | Value |
-|---|---|---|
-| `profile` | `'default'` | `LearnerProfile` |
-| `concepts` | concept slug | `ConceptRecord` |
-| `lessons` | lesson id | plan, board pages, transcript, exam result, timestamps |
-| `materials` | doc id | title, pages, chunks, BM25 postings |
-| `figures` | figure id | PNG data URL, lesson id |
-| `tapes` | tape id | recorded `AgentEvent` sequence (dev only) |
+| Database | Store | Key | Value |
+|---|---|---|---|
+| `chalk-lessons` | `lessons` | solution id | `SolutionRecord`: title, question, board pages, transcript, notes, timestamps |
+| `chalk-figures` | `figures` | figure id | PNG data URL, solution id |
 
-Migrations are explicit and versioned in `src/storage/migrate.ts`. Never wipe on a version bump; write a migration or leave the record untouched. Caps: 25 lessons, 10 materials, 20 MB total — evict oldest with a warning, never silently.
+One database per store, deliberately: `idb-keyval` creates an object store only when it creates the database, so two stores sharing one database name means the second never exists.
+
+Cap: 25 solved questions, oldest evicted with a notice, never silently. A browser with storage blocked runs normally with no history and says so once.
+
+The `chalk.*` and `chalk-*` names predate the rename and are kept so existing data is not orphaned.
 
 ---
 
 ## 21. File layout
 
 ```
-chalk/
-  index.html                       # CSP meta, font preload
+lemmeteach/
+  index.html                       # loads public/csp.js first
   vite.config.ts                   # base: './'
+  package.json
+  .env.example                     # every environment variable, explained
   public/
-    fonts/                         # self-hosted, no third-party font CDN
+    csp.js                         # assembles the Content-Security-Policy
+    fonts/  fonts.css              # self-hosted typefaces
+    sandbox.html  sandbox-frame.js  sandbox-worker.js
+  shared/
+    plans.ts                       # the one pricing table (§27), used by client and api
+  api/                             # Vercel functions — billing only (§28)
+    activate.ts                    # license key → capped model key
+    webhook.ts                     # Lemon Squeezy events → grant / disable
+    _lib/
+      lemon.ts  openrouter.ts  grants.ts  events.ts  http.ts
   src/
     main.tsx
     App.tsx                        # screen state, no router
+    core/types.ts                  # subjects, levels, agent and provider ids
     orchestrator/
       machine.ts                   # phase FSM (§3)
-      session.ts                   # session lifecycle, abort, persistence
+      session.ts                   # one solved question: reader → solver, ports, pacing
     runtime/
       loop.ts                      # runAgent (§7)
-      budget.ts
-      compact.ts                   # deterministic context compaction
-      errors.ts                    # taxonomy (§17.1)
-      trace.ts
+      budget.ts  compact.ts  errors.ts  trace.ts
     providers/
-      index.ts  anthropic.ts  openai.ts  gemini.ts  openrouter.ts  compatible.ts  mock.ts
-      normalize.ts                 # §6 conversions, both directions
-      schema-narrow.ts             # Gemini JSON Schema subset
-      models.ts  pricing.ts  keys.ts
+      index.ts  types.ts
+      openai.ts  openrouter.ts     # the OpenAI-shaped adapter the product uses
+      mock.ts                      # the demo: replays a prepared walkthrough
+      managed.ts                   # model tiers, fallbacks, the credit read
+      replay.ts                    # playing a solved question back at no cost (§18)
+      own-key.ts                   # a learner's own key: detect, check, choose models (§5.8)
+      anthropic.ts  gemini.ts      # used by an own key from those providers
+      normalize.ts  schema-narrow.ts  sse.ts  partial-json.ts  pricing.ts
     agents/
-      planner.ts  tutor.ts  examiner.ts  repairer.ts
+      index.ts                     # reader, solver, repairer prompts and seeds
+      skills.ts                    # the solver's versioned skills document (§8.5)
       prompts/
-        base.ts  policy.ts
-        math.ts  physics.ts  chemistry.ts  cs.ts  biology.ts
+        base.ts  policy.ts  subjects.ts
     tools/
-      index.ts                     # registry, authorization, dispatch
-      schemas.ts                   # Zod → JSON Schema, single source
-      teach-step.ts  ask-learner.ts  check-understanding.ts  run-code.ts
-      compute.ts  search-materials.ts  wiki-lookup.ts
-      learner.ts  notes.ts  lifecycle.ts
+      index.ts  registry.ts  context.ts
+      schemas.ts  json-schema.ts   # Zod → JSON Schema, single source
+      teach-step.ts  ask-learner.ts  run-code.ts  compute.ts
+      wiki-lookup.ts  notes.ts  lifecycle.ts
     board/
-      Board.tsx  page.ts  layout.ts  validate.ts  themes.ts  reveal.ts
-      ops/                         # one component per op, thirteen files
+      Board.tsx  page.ts  layout.ts  diagram-layout.ts  validate.ts
+      op-schema.ts  themes.ts  reveal.ts  highlight.ts  tex.ts
+      ops/                         # the op components
     sandbox/
       host.ts                      # iframe + postMessage bridge
-      frame.html                   # srcdoc contents
-      worker.ts                    # Pyodide / JS execution
-    memory/
-      profile.ts  concepts.ts  scheduling.ts
-    materials/
-      ingest.worker.ts  chunk.ts  bm25.ts  embed.optional.ts
+    solve/
+      attachments.ts               # reading, shrinking and limiting uploads (§13)
+      examples.ts                  # the demo's five questions
+    billing/
+      license.ts                   # activate, reactivate, sign out
+      links.ts                     # checkout and billing portal URLs
     voice/
-      speech.ts  recognition.ts
-    ui/
-      rail/  controls/  settings/  transcript/  status/  quiz/  meter/
+      speech.ts                    # narration, voice ranking, watchdog (§14)
+      recognition.ts
     storage/
-      db.ts  migrate.ts
+      settings.ts                  # settings and the key vault
+      db.ts  records.ts
+    ui/
+      Landing.tsx  SubjectExplorer.tsx  showcase.ts  SubjectGlyph.tsx
+      Activate.tsx  OwnKey.tsx  Solve.tsx  VoicePicker.tsx  PlanLine.tsx
+      LessonScreen.tsx  Review.tsx  SettingsPanel.tsx
+      AskPanel.tsx  Composer.tsx  Transcript.tsx  Details.tsx
+      Meter.tsx  Shortcuts.tsx  Toasts.tsx
     fixtures/
-      tapes/                       # recorded sessions, one per subject
-      lessons/                     # NDJSON scripts for replay mode
-  .github/workflows/deploy.yml
+      lessons/                     # the five prepared walkthroughs, NDJSON
+      tapes/                       # recorded sessions, none bundled yet
+    styles/
+      app.css  board.css
+  evals/
+    golden.json                    # questions with known answers (§8.5)
+  .github/workflows/deploy.yml     # demo-only mirror on GitHub Pages
   README.md
 ```
 
+Nothing under `src/` may import from `api/`.
+
 ---
 
-## 22. Testing and evaluation
+## 22. Testing
+
+The suite runs with no API key and no network: `npm test`.
 
 ### Unit
 
-Provider normalization both directions for all five real adapters, against captured raw responses in `src/providers/__fixtures__/`. Zod schemas accepting good input and rejecting each documented bad case. Board validation, every rule in §10.3. Mastery update maths, including decay across simulated months. BM25 ranking. NDJSON and partial-JSON parsers on truncated, fenced, and interleaved input.
+Provider normalization in both directions against captured raw responses, including an attachment as content parts. Zod schemas accepting good input and rejecting each documented bad case. Board validation, every rule in §10.3. The phase machine, including that every phase can finish. The tool catalogue against the access matrix in §8.1. Voice ranking. Free replay: the same board and narration with no request, and a question recognised when it is asked again. What is sent each turn: the slim schemas, and a ceiling on the solver's fixed cost per turn. A learner's own key: every service's key shape recognised, checked with its own service and nobody else, never in a URL, the quirks each service needs actually sent, the CSP allowing every service, and attachments in each provider's shape. The pricing table against the margin rule (§27). The billing rules and both functions against in-memory stand-ins for Lemon Squeezy and OpenRouter (§28). The layering rule: no provider name in a conditional above the adapter layer.
 
 ### Integration, no network
 
-The mock adapter replays tapes through the real runtime, the real tool bus, and the real renderer. This is the main test surface. Cover: a clean lesson end to end; a lesson where a check fails and remediation triggers; an interruption mid-step; a sandbox timeout; a truncated tool call; a budget exhaustion; an abort mid-turn.
+The mock adapter replays the prepared walkthroughs through the real session, the real tool bus and the real board model (`src/orchestrator/session.test.ts`). Covered: a question solved end to end; every bundled walkthrough; an attachment reaching the reader once and nobody else; a clarifying question that waits for a real answer; a session stopped mid-question that does not invent one; a raised hand answered in one step and then held until the learner confirms, both ways; a second question while waiting; a question after the solution has finished; an abort; pacing, including that a raised hand and an abort release it; no sandbox; a sandbox timeout; Wikipedia on and off; budget exhaustion; the demo making no network request.
 
-### Recording
+### Rendering and accessibility
 
-`npm run record -- --subject=physics --topic="…"` runs a real session with a real key and writes a tape. Tapes are committed. Re-record whenever prompts change materially — a stale tape that no longer resembles model output is worse than no tape.
+Every screen is mounted for real and audited with axe. Rules that need a layout engine are excluded explicitly, so the list is a visible statement of what still needs a real browser.
 
-### Evaluation
+### What the suite cannot tell you
 
-`evals/` holds 25 topics, five per subject, spanning easy to hard. A run produces, per topic: turns used, tokens, wall time, board validation failure rate, tool error rate, checks asked, and whether remediation triggered when it should have. A judge model — the user's own key, opt-in, never in CI — scores the board against a rubric: correctness, does the board carry notation rather than repeating the narration, worked example before generalization, at least one check before step 4.
-
-Track the numbers across prompt changes. Prompt work without measurement is guessing, and §8 has enough behavioural requirements that regressions are easy to miss.
-
-### Accessibility
-
-Automated axe pass on every screen. Manual keyboard-only run through a whole lesson. Screen reader pass on the board with the transcript panel open.
+Whether a real model solves a real question well, reads a real screenshot, or stays within the cost estimate. Those need a live key (§26). The prepared walkthroughs are authored, not recorded.
 
 ---
 
-## 23. Build order
+## 23. Status and what is next
 
-Each milestone ships working before the next begins. Milestones 1–4 need no API key at all.
+Built and tested against stand-ins:
 
-- **M1 — Contracts.** Types for board ops, tools, messages, records. Zod schemas. Board validator. Three recorded-shape fixture lessons. Tests.
-- **M2 — Board renderer.** All thirteen ops, both themes, diagram layout, pagination, responsive down to 360px. Driven purely by fixtures. *This milestone decides whether the product looks composed or broken — do not rush it.*
-- **M3 — Playback and voice.** Reveal engine, transport controls, keyboard shortcuts, speech with boundary sync, muted mode, clean teardown on every path.
-- **M4 — Runtime and mock.** Agent loop, tool bus with validation and authorization, budget, abort, trace, mock adapter replaying tapes. The whole experience now works with no key.
-- **M5 — Providers.** Anthropic first, then OpenAI, Gemini, OpenRouter, compatible. Normalization tests against captured responses. Setup screen and key vault. Real streaming into the live board.
-- **M6 — Agents and prompts.** Planner, tutor, examiner, repairer. Five subject packs. Iterate against real topics until boards are consistently good; expect several rounds, and treat a weak board as a prompt bug rather than a model limitation.
-- **M7 — Interaction.** `ask_learner`, `check_understanding`, the remediation branch, raise hand, exam, notes.
-- **M8 — Sandbox.** Iframe host, worker, JS execution first, then Pyodide, then figures on the board.
-- **M9 — Memory.** Profile, concept records, update rule, spaced review, the visible **What I know** screen, export and erase.
-- **M10 — Materials.** Ingest worker, chunking, BM25, `search_materials`, grounding in the planner prompt.
-- **M11 — Hardening.** Full error taxonomy, degradation ladder rungs 2–5, cost meter, evals, accessibility pass.
-- **M12 — Ship.** Deploy workflow, README, demo tape on the landing page, final pass.
+- The scrolling board, playback, voice with ranking and watchdog, and pacing.
+- Stop and ask, by typing or by voice, with the learner confirming the answer landed.
+- Using your own API key instead of a plan.
+- The runtime, the tool bus, the reader and solver, and the demo.
+- Attachments, the Solve screen, the landing page, activation.
+- Pricing, both billing functions, and the grant rules.
+
+Not yet done, in rough order:
+
+1. **A real end-to-end run.** Lemon Squeezy store and products, an OpenRouter account with auto top-up, Vercel environment variables, and one purchase in test mode: pay, activate, solve a typed question, solve a screenshot, cancel.
+2. **Measure and tune.** The real cost of a solved question, and the quality of solutions on the standard model. Correct `TYPICAL_LESSON_USD` and the question counts; treat a weak board as a prompt bug before moving up a model.
+3. **Rewrite the five demo walkthroughs** as worked solutions. They were written as topic lessons and still read that way.
+4. **Legal pages** — terms, privacy, refunds — and the footer links to them.
+5. **Replaying across devices.** A solved question can be replayed free on the device it was solved on; there is no sync.
+6. **A runner for the golden set** (§8.5), so it is one command rather than twelve by hand.
+7. **Own keys on the newer OpenAI models**, which need `max_completion_tokens` and no temperature.
 
 ---
 
 ## 24. Deployment
 
-Static output in `dist/`. Set `base: './'` in `vite.config.ts` so it works at any path. No environment variables at any point — a build that requires one has broken a hard constraint.
+Static output in `dist/` plus the functions in `api/`. Keep `base: './'` in `vite.config.ts`. The static build must still succeed with no environment variables at all — it then runs as demo-only, with the plan buttons disabled.
 
-**Cloudflare Pages / Vercel / Netlify** — connect the repo, build command `npm run build`, output directory `dist`. Or one command: `npx vercel --prod`.
+**Vercel** is the host, because the billing functions live beside the static files on one origin. Connect the repo (build `npm run build`, output `dist`) or run `npx vercel --prod`. Charging money takes the project off Vercel's Hobby plan, which is non-commercial only: budget for Pro.
 
-**GitHub Pages** — commit this and every push to `main` deploys:
+Server environment variables (Vercel dashboard, never in the repo, never prefixed `VITE_`):
 
-```yaml
-name: deploy
-on:
-  push: { branches: [main] }
-permissions: { contents: read, pages: write, id-token: write }
-concurrency: { group: pages, cancel-in-progress: true }
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: npm }
-      - run: npm ci
-      - run: npm run build
-      - uses: actions/upload-pages-artifact@v3
-        with: { path: dist }
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment: github-pages
-    steps: [{ uses: actions/deploy-pages@v4 }]
-```
+| Variable | What it is |
+|---|---|
+| `OPENROUTER_MANAGEMENT_KEY` | Management key that creates and caps learner keys |
+| `LEMONSQUEEZY_WEBHOOK_SECRET` | Signing secret for the webhook |
+| `LEMONSQUEEZY_STORE_ID` | Our store id; licenses from any other store are rejected |
+| `LEMON_VARIANT_STARTER` / `_REGULAR` / `_INTENSIVE` | Variant id of each plan |
 
-**Offline / PWA** — a service worker caching the app shell, fonts, and fixture lessons. Already-generated lessons replay offline; new ones need the provider. Optional, and last.
+Public build-time variables (safe to expose, they are just links):
 
-**README** — one-line description, deploy button row, then three numbered steps: deploy, open, paste your key. A demo GIF of the board drawing itself. Nothing else above the fold. A **How it works** section below covering the agent loop and the tool list, because "no backend" is the interesting claim and people will want to check it.
+| Variable | What it is |
+|---|---|
+| `VITE_CHECKOUT_STARTER` / `_REGULAR` / `_INTENSIVE` | Lemon Squeezy checkout URL per plan |
+| `VITE_BILLING_PORTAL_URL` | Where **Manage subscription** goes |
+
+**Lemon Squeezy setup** — one subscription product with three monthly variants, license keys enabled on each, the purchase redirect pointed at `https://<site>/?activate`, and a webhook to `https://<site>/api/webhook` subscribed to `subscription_created`, `subscription_updated`, `subscription_expired`, and `order_refunded`.
+
+**OpenRouter setup** — one account, auto top-up on so the balance never runs dry, a management key.
+
+**GitHub Pages** still works for a demo-only mirror via `.github/workflows/deploy.yml`; it has no functions, so nobody can activate there.
+
+**Offline / PWA** — a service worker caching the app shell, fonts, and the demo walkthroughs. Optional, and last.
+
+**README** — written for whoever operates the product, not for learners: what it is, how to run it locally, the setup steps and environment variables above, how the pricing table works, and a **How it works** section covering the reader and solver, the tool list, and exactly what the backend does and does not see.
 
 ---
 
@@ -1071,24 +1114,33 @@ jobs:
 
 **Product**
 
-- [ ] A learner with a fresh key gets a planned, spoken, drawn, adaptive lesson within 60 seconds of landing, having read no instructions.
-- [ ] The tutor asks a real question before step 4 and visibly changes course when the answer is wrong.
-- [ ] Raising a hand interrupts within 300 ms and resumes without restarting.
-- [ ] `run_code` produces a figure that lands on the board inside a normal lesson.
-- [ ] A second lesson on a related topic demonstrably uses what the first one recorded.
+- [ ] A visitor understands what LemmeTeach is and what it costs without scrolling past the second screen, and can try the demo in one click.
+- [ ] Paying, receiving a license key, pasting it, and solving a first question takes under three minutes and needs no instructions.
+- [ ] A typed question, a pasted screenshot and an attached PDF are each solved correctly, step by step, with the answer stated and checked.
+- [ ] Every step is spoken in order; nothing is skipped; the summary appears only after the last step.
+- [ ] Stopping it interrupts within 300 ms. The answer is spoken next, the learner is asked whether it made sense, and the solution resumes from where it stopped only when they say yes.
+- [ ] The voice never stops mid-sentence, and every earlier step can be scrolled back to.
+- [ ] Pasting a working API key from a supported provider is enough to solve a question, with no subscription and nothing else to choose.
+- [ ] It never quizzes the learner. It asks only when the question genuinely cannot be solved as given.
+- [ ] A learner who runs out of credit is told so in plain words, loses nothing, and is offered the next plan.
 - [ ] Every board op renders correctly at 360px and at 2560px.
-- [ ] The entire product works with the mock adapter and no key.
-- [ ] The entire product works with voice muted.
+- [ ] Everything works in the demo with no payment, and with voice off.
 
 **Engineering**
 
 - [ ] No provider name appears in a conditional above the adapter layer.
 - [ ] Every tool input is validated; a malformed call is a recoverable turn, never a crash.
+- [ ] The solver is not offered `ask_learner`, and no quiz, exam or learner-record tool exists — asserted by test.
+- [ ] Attachments reach the reader once and no other request — asserted by test.
 - [ ] Every error class in §17.1 has a test and a user-visible message written for a human.
-- [ ] All five degradation rungs are reachable and tested.
-- [ ] Aborting or closing the tab leaves no speech playing, no worker running, and no lost lesson.
-- [ ] The key appears in no trace export, no saved lesson, no log line, and no URL — asserted by test.
-- [ ] Deploy is: connect repo → done. No env vars, no config, no manual step.
+- [ ] Aborting or closing the tab leaves no speech playing, no worker running, no pacing hold, and no lost work.
+- [ ] Neither the license key, the model key, nor a learner's own key appears in any trace export, saved solution, log line, or URL — asserted by test.
+- [ ] No key is ever issued without a cap, and no renewal can grant credit twice — asserted by test.
+- [ ] A webhook with a bad signature changes nothing.
+- [ ] A cancelled, expired or refunded subscription ends with a disabled key.
+- [ ] Every plan in `shared/plans.ts` clears $2 after fees, the hosting allowance and full credit use — asserted by test.
+- [ ] The solver's fixed cost per turn stays under its ceiling, and a replay makes no request — both asserted by test.
+- [ ] The static build succeeds with no environment variables and runs as demo-only.
 
 ---
 
@@ -1096,10 +1148,159 @@ jobs:
 
 These were chosen to satisfy the constraints in §2. Say so if any should change.
 
-1. **Web Speech API for voice**, not a paid TTS: free, offline, no second key, at the cost of voice quality. An ElevenLabs or OpenAI-TTS adapter behind the same `speech.ts` interface is a natural later addition and would need a second key.
-2. **BM25 rather than embeddings** for materials, for the reasons in §13. The embedding path is specified but deferred.
-3. **Five fixed subjects**, open-ended topics within each. The board ops are built for these five; music notation, geography maps, or history timelines would each need their own renderer, so "every subject" is honestly bounded by what the board can draw.
-4. **One local learner profile**, not per-user accounts. Shared-device households would need a profile switcher — small to add, unspecified for now.
-5. **English UI first**; narration follows the language of the topic. Right-to-left layout is not handled.
-6. **Wikipedia as the only external knowledge source**, because its API sends permissive CORS headers and needs no key. Any other source would need a proxy, which §2 forbids.
-7. **Pyodide from a CDN** by default, with a vendoring script for restricted networks.
+1. **Solve-only.** No lessons, quizzes, exam or learner record. A learner who wants to be taught a topic types the topic and gets it explained with one worked example.
+2. **Web Speech API for voice**, with the best installed voice chosen automatically. Free and instant, but quality varies by device. A paid cloud voice or a neural voice downloaded into the browser is the upgrade path, and either changes cost or load time.
+3. **The reader, not the solver, sees attachments.** Cheaper by a wide margin; the cost is that a figure reaches the solver as a description rather than a picture. If solutions suffer on diagram-heavy questions, the fix is to pass images to the solver's first turn as well.
+4. **Eight subjects, one of them a catch-all** (§10.4), chosen by the reader. The honest limit is what the board can draw: it has no maps, musical notation or pictures.
+5. **License key instead of accounts.** No login, no user database. History stays on one device, and activating on a second device signs the first one out until it reconnects.
+6. **English UI first**; narration follows the language of the question. Right-to-left layout is not handled.
+7. **Wikipedia as the only external knowledge source**, off by default.
+8. **Pyodide from a CDN** by default, with a vendoring script for restricted networks.
+9. **Lemon Squeezy as merchant of record.** Its fees are the largest variable in the margin.
+10. **OpenRouter as the only model gateway**, because it can issue per-learner capped keys callable from a browser.
+11. **No database.** OpenRouter key names hold the billing state (§28). Fine for hundreds of subscribers; move to a key-value store before thousands.
+12. **Unused credit does not roll over.** Monthly billing only; annual plans, trials, coupons and top-up packs are unspecified.
+13. **Hosting is covered by a per-subscriber allowance** of $0.25, which pays for Vercel Pro at eighty subscribers. There is no per-user storage cost.
+14. **The cost of a solved question is worked out, not yet measured.** `TYPICAL_LESSON_USD` (1.5 cents) comes from measured prompt sizes and assumed turn counts and output lengths. Real models may take more turns or write more. Measure it on a live key and correct the counts before launch: the spending cap protects the margin either way, but the promise on the pricing page rests on this number.
+14a. **A slimmer tool schema may cost accuracy.** The model is no longer sent the full shape of each board operation in the schema, only in the prompt. A weaker model may get more operations wrong and need a retry, which costs a turn. Watch the board rejection rate on the golden set; if it rises, restore the full schema for that model.
+15. **The standard model is very new and very cheap.** Its quality on this product is untested, as is its reading of screenshots and PDFs.
+16. **Own keys undercut the plans, by request.** Anyone technical enough to have a key pays us nothing. The plans are for people who would rather not deal with keys; if that turns out to be too few, this is the first thing to revisit.
+17. **An own key gets the small model.** There is no way to ask for a stronger one yet.
+17a. **Unlisted services are refused, not guessed at.** Supporting one means checking it accepts browser requests, finding its key shape and its quirks, and adding it to the list with a test. A service that blocks browser requests cannot be supported without a proxy, which §2 forbids.
+18. **Voice input uses the browser's speech recognition**, which Chrome and Safari have and Firefox does not, and which in Chrome sends audio to Google. Where it is missing, the button is not shown and typing always works.
+19. **The demo walkthroughs are authored and lesson-shaped.** They show the board, voice and pacing truthfully, but their wording is "let me teach you this", not "here is your answer" (§23).
+
+---
+
+## 27. Product, plans and pricing
+
+LemmeTeach sells one thing: questions solved. A plan is a monthly amount of AI credit, described to the learner as an approximate number of questions.
+
+### 27.1 The plans
+
+| Plan | Price / month | AI credit | Roughly |
+|---|---|---|---|
+| Starter | $8 | $4.25 | 280 questions |
+| Regular | $12 | $7.75 | 500 questions |
+| Intensive | $20 | $14.75 | 950 questions |
+
+The figures assume the standard model tier and 1.5 cents per solved question (`TYPICAL_LESSON_USD`), rounded down. That is worked out from measured prompt sizes — about 80k input and 6k output tokens over sixteen turns, which is 1.1 cents with no prompt caching and about half a cent with it — and not yet from a live key (§26.14). Replays are free and are not counted. In `shared/plans.ts` the field is still called `lessons`. They are always shown with "about", never as a promise.
+
+### 27.2 The margin rule
+
+For every plan, with all fees at their worst case:
+
+```
+kept        = (price × (1 − 0.07) − 0.50) × (1 − 0.01)     // Lemon Squeezy: 5% + 0.5% subscription
+                                                            //   + 1.5% international, + $0.50, then 1% payout
+credit cost = credit × 1.055                                // OpenRouter's fee on buying credit
+profit      = kept − credit cost − $0.25 hosting allowance   ≥  $2.00
+```
+
+`shared/plans.ts` holds the prices, credits and fee constants, and a test asserts the inequality for every plan. To change a price, change it there and let the test tell you whether the credit still clears $2. When a learner does not use all their credit, the remainder is extra margin; the rule guarantees the floor, not the average.
+
+Fees change. The constants carry the date they were last checked against the providers' pricing pages.
+
+### 27.3 What a subscriber gets
+
+- Their own questions solved, in any subject, at any level, from text, a screenshot or a file.
+- The worked solution to each, to copy or download, and their recent history — stored on their device.
+- The standard tutor by default; the deeper tutor on any plan, at about eight times the credit per question.
+- No rollover, no overage. When credit is gone, solving stops until renewal or an upgrade. Everything already solved stays readable.
+
+### 27.4 What is free
+
+The demo: five prepared questions, solved through the real board, voice and controls. It costs us nothing to serve and is the whole sales pitch.
+
+---
+
+## 28. Billing backend
+
+Two functions, no database. State lives in the two services that already have to be right about it: Lemon Squeezy knows who is paying, OpenRouter knows what each key may spend.
+
+```
+ checkout ──► Lemon Squeezy ──webhook──► /api/webhook ──► OpenRouter management API
+                   │                                         (create · cap · disable)
+                   └─ license key ─► learner ─► /api/activate ──► capped key ─► browser
+                                                                                   │
+                                                           questions ─────────────┴──► OpenRouter
+```
+
+### 28.1 The key record
+
+Each subscription owns at most one OpenRouter key, and the key's **name** is the record:
+
+```
+lemmeteach:o<orderId>:p<planId>:r<periodMarker>
+```
+
+`orderId` ties it to the Lemon Squeezy order (present on both the license and the subscription). `planId` is what was last granted. `periodMarker` is the subscription's `renews_at` at the time of the last grant, or `init` when the key was created by activation before any webhook arrived.
+
+Remaining credit is always `limit − usage`, both kept by OpenRouter.
+
+### 28.2 `POST /api/activate`
+
+Body `{ licenseKey }`. Steps:
+
+1. Validate the license with Lemon Squeezy's license API. Reject unless it is valid, its store is ours, its variant maps to a plan, and its status is not `expired` or `disabled`. (`inactive` only means no device instance was registered, which we never do.)
+2. Find the subscription's key by order id.
+3. **If one exists** — the raw key cannot be read back, so rotate: note `remaining = limit − usage`, delete it, create a new key with `limit = remaining` and the same name. A disabled key is not rotated; the answer is "subscription ended".
+4. **If none exists** (the webhook has not arrived yet) — create one with `limit = plan credit` and period marker `init`.
+5. Return `{ apiKey, plan, creditUsd }`.
+
+Rotation is why a second device signs the first one out, and why a shared license is self-limiting: there is only ever one live key and one pot of credit.
+
+### 28.3 `POST /api/webhook`
+
+Verify `X-Signature` (HMAC-SHA256 of the raw body, hex, constant-time compare) before parsing. Then:
+
+| Event | Action |
+|---|---|
+| `subscription_created` | Create the key with `limit = plan credit`, marker = `renews_at`. If activation got there first, only set the marker. |
+| `subscription_updated`, status `active`, `renews_at` later than the marker | A new paid period: `limit = usage + plan credit`, update the marker. Unused credit is dropped, not carried. |
+| `subscription_updated`, marker is `init` | Record the marker. No grant — activation already granted this period. |
+| `subscription_updated`, plan changed to a bigger one mid-period | Raise the limit by the difference in credit. A downgrade takes effect at the next renewal. |
+| `subscription_updated`, status `expired` or `unpaid`; `subscription_expired`; `order_refunded` | Disable the key. |
+| `subscription_updated`, status `active` on a disabled key | Re-enable it. |
+| anything else | 200 and ignore. |
+
+Every rule is idempotent: Lemon Squeezy retries webhooks, and a retry must never grant twice. The rules are a pure function in `api/_lib/grants.ts` from (event, current key) to an action, so they are tested without a network.
+
+A `cancelled` subscription stays enabled until it expires — the learner has paid for the period.
+
+### 28.4 Failure handling
+
+- OpenRouter unreachable during a webhook → return 500 so Lemon Squeezy retries.
+- OpenRouter unreachable during activation → tell the learner payment is fine and to try again in a minute.
+- Unknown variant → 200 to the webhook (not ours to retry), a clear error to activation.
+- Errors returned to the browser never include the management key, the upstream response body, or another customer's data.
+
+### 28.5 What the backend must never do
+
+Proxy model traffic. Store or log license keys, model keys, or emails. Issue a key without a limit. Trust an unsigned webhook. Trust the client about which plan it is on.
+
+---
+
+## 29. Landing page
+
+One scrolling page, rendered by the same app (`src/ui/Landing.tsx`), shown to anyone without a license on this device. It follows §16: the board is the hero, copy is plain, motion is reserved for the board writing itself.
+
+Sections, in order:
+
+1. **Header** — sticky. Wordmark, **Use my own API key**, **I have a license key**, **See plans**.
+2. **Hero** — "Stuck on a question? Watch it solved step by step." One paragraph on how: type it, paste a screenshot or attach the file; worked through on a board and explained aloud; stop it whenever you want. Primary button **Try the demo**, secondary **See plans**. Beside it, a real board that writes itself out and then moves on to the next field: fourteen example boards across physics, history, chemistry, English, finance, geography and so on (`src/ui/showcase.ts`), no subject taking more than two. They are hand-written, captioned as examples, and validated like any board.
+3. **How it works** — five steps: you bring the question, it reads it properly, it solves it on a board, it explains aloud, you can interrupt.
+4. **Comparison** — a video course, an AI chatbot and LemmeTeach against the same six behaviours, worded fairly.
+5. **Subjects** — an explorer (`src/ui/SubjectExplorer.tsx`): pick a subject and see how it is handled (the subject pack's own rules, in a sentence), an example board in that subject, and the kind of thing people ask.
+6. **Plans** — the three plans from `shared/plans.ts`: price, approximate questions a month, cents per question, **Choose** button to checkout. The one badge, lowest price per question, is computed from the table. Under the plans, an offer for anyone who already has an API key: use it, pay your provider, pay us nothing.
+7. **Questions** — whether it can be used without subscribing, what counts as one question, what can be uploaded, what happens when they run out, where the data lives, two devices, cancelling.
+8. **Closing** — "See a question solved before you pay for one."
+9. **Footer** — wordmark and who handles payment. Terms, privacy and refunds links are still to be added (§23).
+
+Rules:
+
+- Every number on the page comes from `shared/plans.ts`. Nothing is typed twice.
+- Say only what the product does. No "waits for your answer", no quizzes, no progress tracking, no "remembers what you know" — those described the earlier product.
+- No testimonials, logos, or user counts that are not real. No countdown timers.
+- A plan button with no checkout URL configured is visibly disabled and says so, rather than leading nowhere.
+- Responsive to 360px, keyboard reachable, contrast ≥ 4.5:1 — the same floor as the rest of the app.

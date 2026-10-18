@@ -150,8 +150,8 @@ export class BoardModel {
   }
 
   /**
-   * A compact account of what has actually been taught, handed to the examiner
-   * so it cannot test anything that was never on the board (§8.4).
+   * A compact account of what is on the board so far. Used when older turns
+   * are compacted (§7), so the solver keeps track of its own working.
    */
   historySummary(): string {
     const lines: string[] = [];

@@ -31,27 +31,6 @@ export type FixtureLine =
   | ({ t: 'plan' } & PlanLessonIn)
   | { t: 'step'; say: string; board: BoardOp[]; clear?: boolean; objective?: string }
   | {
-      t: 'ask';
-      question: string;
-      kind: 'free' | 'choice' | 'confirm' | 'number';
-      options?: string[];
-      why?: string;
-      /** What the fixture's learner answered, for replay. */
-      answer: string;
-    }
-  | {
-      t: 'check';
-      questions: {
-        q: string;
-        options: string[];
-        answer: number;
-        why: string;
-        concept: string;
-      }[];
-      /** What the fixture's learner chose, for replay. */
-      answers: number[];
-    }
-  | {
       t: 'code';
       language: 'python' | 'javascript';
       purpose: string;
@@ -66,7 +45,6 @@ export type FixtureLine =
       objectivesMet: string[];
       objectivesMissed: string[];
       nextTopics: string[];
-      runExam: boolean;
     };
 
 export interface FixtureLesson {
@@ -100,6 +78,9 @@ export const FIXTURE_LESSONS: FixtureLesson[] = [
   parse('cs-binary-search', csRaw),
   parse('biology-cellular-respiration', biologyRaw),
 ];
+
+/** The subjects the free demo can play: the ones with a bundled lesson. */
+export const DEMO_SUBJECTS: SubjectId[] = FIXTURE_LESSONS.map((f) => f.meta.subject);
 
 export function fixtureFor(subject: SubjectId): FixtureLesson | undefined {
   return FIXTURE_LESSONS.find((f) => f.meta.subject === subject);

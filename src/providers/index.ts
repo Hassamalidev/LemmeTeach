@@ -22,7 +22,7 @@ export const ADAPTERS: Record<ProviderId, ProviderAdapter> = {
   mock,
 };
 
-/** The order they are offered in on the Setup screen. */
+/** Every adapter, in a stable order. Only two are reachable from the product (§5). */
 export const PROVIDER_ORDER: ProviderId[] = [
   'anthropic',
   'openai',

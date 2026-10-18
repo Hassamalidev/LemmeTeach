@@ -17,7 +17,28 @@ export interface Settings {
   provider: ProviderId;
   model: Record<string, string>;
   /** Per-role overrides; empty means "use the provider default for that role". */
-  roleModels: { planner?: string; tutor?: string; examiner?: string; repairer?: string };
+  roleModels: { planner?: string; tutor?: string; repairer?: string };
+  /** Which tutor tier a subscriber's lessons use (§18). */
+  quality: 'standard' | 'deep';
+  /**
+   * Set when the learner is using their own API key instead of a plan (§5.8):
+   * whose key it is and which models were chosen for it. The key itself is in
+   * the key vault, never in here.
+   */
+  ownKey: {
+    providerId: ProviderId;
+    /** Which service the key belongs to; several share one adapter. */
+    serviceId: string;
+    label: string;
+    models: { planner: string; tutor: string; repairer: string };
+    /** Where to send requests, for a service on the compatible adapter. */
+    baseUrl?: string;
+    quirks?: {
+      omitStreamOptions?: boolean;
+      requiredToolChoice?: string;
+      bridgeUserAfterTool?: boolean;
+    };
+  } | null;
   compatibleBaseUrl: string;
   pyodideBaseUrl: string;
   theme: BoardTheme;
@@ -34,9 +55,12 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  provider: 'anthropic',
+  // The demo, until a license is activated on this device (§15).
+  provider: 'mock',
   model: {},
   roleModels: {},
+  quality: 'standard',
+  ownKey: null,
   compatibleBaseUrl: 'http://localhost:11434/v1',
   pyodideBaseUrl: 'https://cdn.jsdelivr.net/pyodide/v0.26.4/full/',
   theme: 'slate',
@@ -47,7 +71,8 @@ export const DEFAULT_SETTINGS: Settings = {
   wikiEnabled: false,
   sandboxEnabled: true,
   pace: 'normal',
-  budget: { inputTokens: 120_000, outputTokens: 30_000 },
+  // Billable tokens: cache reads count for a tenth (runtime/budget.ts).
+  budget: { inputTokens: 200_000, outputTokens: 30_000 },
   rememberKey: true,
   reducedMotion: 'system',
   seenFirstRunEstimate: false,
@@ -55,6 +80,7 @@ export const DEFAULT_SETTINGS: Settings = {
 
 const SETTINGS_KEY = 'chalk.settings';
 const SCHEMA_KEY = 'chalk.schema';
+const LICENSE_KEY = 'chalk.license';
 const keyKey = (p: ProviderId): string => `chalk.key.${p}`;
 
 function safeLocal(): Storage | null {
@@ -84,6 +110,11 @@ export function loadSettings(): Settings {
       provider: PROVIDER_IDS.includes(parsed.provider as ProviderId)
         ? (parsed.provider as ProviderId)
         : DEFAULT_SETTINGS.provider,
+      quality: parsed.quality === 'deep' ? 'deep' : 'standard',
+      ownKey:
+        parsed.ownKey && PROVIDER_IDS.includes(parsed.ownKey.providerId)
+          ? { ...parsed.ownKey, serviceId: parsed.ownKey.serviceId ?? parsed.ownKey.providerId }
+          : null,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -154,6 +185,54 @@ export function hasKey(provider: ProviderId): boolean {
   return getKey(provider).length > 0;
 }
 
+/* -------------------------------- license -------------------------------- */
+
+/**
+ * The learner's proof of purchase (§5.7). Held to the same rules as the model
+ * key: it goes to our own activation endpoint and nowhere else.
+ */
+export interface StoredLicense {
+  licenseKey: string;
+  planId: string;
+  activatedAt: number;
+}
+
+export function getLicense(): StoredLicense | null {
+  const ls = safeLocal();
+  if (!ls) return null;
+  try {
+    const raw = ls.getItem(LICENSE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<StoredLicense>;
+    if (typeof parsed.licenseKey !== 'string' || typeof parsed.planId !== 'string') return null;
+    return {
+      licenseKey: parsed.licenseKey,
+      planId: parsed.planId,
+      activatedAt: typeof parsed.activatedAt === 'number' ? parsed.activatedAt : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function setLicense(license: StoredLicense): void {
+  const ls = safeLocal();
+  try {
+    ls?.setItem(LICENSE_KEY, JSON.stringify(license));
+  } catch {
+    /* Blocked storage: the learner activates again next visit. */
+  }
+}
+
+export function forgetLicense(): void {
+  const ls = safeLocal();
+  try {
+    ls?.removeItem(LICENSE_KEY);
+  } catch {
+    /* nothing to do */
+  }
+}
+
 /**
  * Every string that leaves the app — a trace export, a saved lesson, a log
  * line — passes through here. Belt and braces on top of "never put the key in
@@ -166,6 +245,8 @@ export function scrubKeys(text: string): string {
     const k = getKey(p);
     if (k && k.length >= 8) candidates.add(k);
   }
+  const license = getLicense()?.licenseKey;
+  if (license && license.length >= 8) candidates.add(license);
   for (const k of candidates) {
     out = out.split(k).join('[key removed]');
   }

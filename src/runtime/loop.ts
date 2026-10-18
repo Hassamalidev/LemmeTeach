@@ -48,6 +48,8 @@ export interface AgentConfig {
 }
 
 export interface RunContext {
+  /** Awaited before each turn. Resolving late is how a caller applies backpressure. */
+  beforeTurn?: () => Promise<void>;
   provider: ProviderAdapter;
   adapterConfig: AdapterConfig;
   toolBus: ToolBus;
@@ -58,16 +60,10 @@ export interface RunContext {
   compactCtx: CompactContext;
   /**
    * Called before each turn. Returning a string injects it as a user message —
-   * this is how remediation and a raised hand reach the tutor, both of which
-   * are decided by the orchestrator rather than by the model.
+   * this is how a raised hand and the wrap-up warning reach the solver, both of
+   * which are decided by the orchestrator rather than by the model.
    */
   injectBeforeTurn?: () => string | null;
-  /**
-   * Whether a turn produced a usable tool call. Three failures in a row means
-   * the model cannot work the loop, and the session offers scripted mode
-   * rather than letting it burn the learner's budget (§5.5, §17.4).
-   */
-  onTurnQuality?: (hadValidToolCall: boolean) => void;
   /**
    * Called as a teach_step's arguments stream in, with the operations that are
    * already complete. This is what lets the board start drawing before the
@@ -99,6 +95,9 @@ export async function runAgent(cfg: AgentConfig, ctx: RunContext): Promise<Agent
   for (let turn = 0; turn < cfg.maxTurns; turn++) {
     try {
       ctx.budget.assertNotExhausted();
+      // Let the caller hold the next turn back — the session uses this so the
+      // model never gets more than one step ahead of the voice.
+      await ctx.beforeTurn?.();
       ctx.signal.throwIfAborted();
     } catch (err) {
       const e = asChalkError(err);
@@ -203,8 +202,6 @@ export async function runAgent(cfg: AgentConfig, ctx: RunContext): Promise<Agent
       toolCalls: result.toolCalls,
     });
 
-    ctx.onTurnQuality?.(result.toolCalls.length > 0);
-
     if (result.toolCalls.length === 0) {
       // Prose with no tool call teaches nobody anything: the board stays blank
       // and the learner sees a spinner. Ask once with tool_choice forced.
@@ -274,7 +271,7 @@ export async function consume(request: AgentRequest, ctx: RunContext): Promise<T
   >();
   const order: string[] = [];
   let text = '';
-  let usage = { inputTokens: 0, outputTokens: 0 };
+  let usage: TurnResult['usage'] = { inputTokens: 0, outputTokens: 0 };
   let stop: TurnResult['stop'] = 'end_turn';
 
   for await (const event of ctx.provider.run(request, ctx.adapterConfig, ctx.signal)) {
@@ -310,7 +307,12 @@ export async function consume(request: AgentRequest, ctx: RunContext): Promise<T
         break;
       }
       case 'usage':
-        usage = { inputTokens: event.inputTokens, outputTokens: event.outputTokens };
+        usage = {
+          inputTokens: event.inputTokens,
+          outputTokens: event.outputTokens,
+          cachedInputTokens: event.cachedInputTokens,
+          costUsd: event.costUsd,
+        };
         break;
       case 'stop':
         stop = event.reason;

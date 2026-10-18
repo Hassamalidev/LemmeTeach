@@ -7,7 +7,18 @@
  * runtime be tested without a key.
  */
 
-export const SUBJECT_IDS = ['math', 'physics', 'chemistry', 'cs', 'biology'] as const;
+export const SUBJECT_IDS = [
+  'math',
+  'physics',
+  'chemistry',
+  'cs',
+  'biology',
+  'finance',
+  'psychology',
+  // Everything else. The board's general operations — text, tables, diagrams,
+  // plots — carry a lesson in any field that can be explained on a whiteboard.
+  'general',
+] as const;
 export type SubjectId = (typeof SUBJECT_IDS)[number];
 
 export const LEVELS = ['intro', 'school', 'undergrad', 'deep'] as const;
@@ -16,7 +27,12 @@ export type Level = (typeof LEVELS)[number];
 export const PACES = ['slow', 'normal', 'quick'] as const;
 export type Pace = (typeof PACES)[number];
 
-export const AGENT_IDS = ['planner', 'tutor', 'examiner', 'repairer'] as const;
+/**
+ * `planner` is the reader, which restates the question and plans the
+ * solution; `tutor` is the solver, at the board. The ids predate those names
+ * and are kept because traces and tool allowlists are keyed on them.
+ */
+export const AGENT_IDS = ['planner', 'tutor', 'repairer'] as const;
 export type AgentId = (typeof AGENT_IDS)[number];
 
 export const PROVIDER_IDS = [
@@ -35,6 +51,9 @@ export const SUBJECT_LABELS: Record<SubjectId, string> = {
   chemistry: 'Chemistry',
   cs: 'Computer science',
   biology: 'Biology',
+  finance: 'Finance',
+  psychology: 'Psychology',
+  general: 'Any other subject',
 };
 
 /** §16 — one accent per subject, used for headings, active rail item, key boxes. */
@@ -44,6 +63,9 @@ export const SUBJECT_ACCENTS: Record<SubjectId, string> = {
   chemistry: '#0CA678',
   cs: '#7048E8',
   biology: '#C2255C',
+  finance: '#F08C00',
+  psychology: '#1098AD',
+  general: '#74B816',
 };
 
 export const LEVEL_LABELS: Record<Level, string> = {

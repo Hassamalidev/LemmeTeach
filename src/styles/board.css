@@ -100,6 +100,74 @@
 }
 
 /* --------------------------------------------------------------------------
+ * The scrolling board: everything written so far, growing downwards
+ * -------------------------------------------------------------------------- */
+
+.board-continuous .board-page {
+  display: block;
+  scroll-padding: 24px;
+  /* Room below the last step, so it never sits hard against the controls. */
+  padding-bottom: 96px;
+}
+
+.board-continuous .board-page:focus-visible {
+  outline-offset: -3px;
+}
+
+.board-continuous .board-main {
+  max-width: 980px;
+}
+
+.board-entry + .board-entry {
+  margin-top: 26px;
+}
+
+/* A fresh page in the solver's mind is a rule on a board that never wipes. */
+.board-entry.board-break {
+  margin-top: 44px;
+  padding-top: 40px;
+  border-top: 1px solid var(--board-rule);
+}
+
+/* An answer to a raised hand is set apart from the solution it interrupts. */
+.board-aside {
+  padding: 18px 20px 6px;
+  border-left: 3px solid var(--board-accent-soft);
+  background: var(--board-key-bg);
+  border-radius: 4px;
+}
+
+.board-aside-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--board-accent-soft);
+  margin-bottom: 10px;
+}
+
+.board-continuous .board-side {
+  border-left: 0;
+  padding-left: 0;
+  margin-top: 8px;
+}
+
+.board-jump {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 5;
+  padding: 9px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--board-accent-soft);
+  background: var(--board-bg);
+  color: var(--board-ink);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+/* --------------------------------------------------------------------------
  * The write animation
  * -------------------------------------------------------------------------- */
 
