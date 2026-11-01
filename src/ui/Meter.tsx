@@ -31,7 +31,7 @@ export function Meter({ budget }: { budget: BudgetSnapshot }): JSX.Element {
       </div>
       {budget.warned && !budget.exhausted && (
         <div style={{ marginTop: 4, color: '#d9a441' }}>
-          Most of the budget is gone — the tutor is wrapping up.
+          Most of the budget is gone, so it is wrapping up.
         </div>
       )}
     </div>

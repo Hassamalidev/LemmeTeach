@@ -90,6 +90,37 @@ const MAIN_FIELD: Partial<Record<BoardOpKind, string>> = {
   figure: 'figureId',
 };
 
+/** Other names models use for an operation. */
+const OP_ALIASES: Record<string, BoardOpKind> = {
+  title: 'heading',
+  header: 'heading',
+  subheading: 'heading',
+  note: 'text',
+  paragraph: 'text',
+  line: 'text',
+  callout: 'text',
+  equation: 'math',
+  formula: 'math',
+  latex: 'math',
+  tex: 'math',
+  derivation: 'derive',
+  steps: 'derive',
+  list: 'bullets',
+  bullet: 'bullets',
+  points: 'bullets',
+  flow: 'diagram',
+  flowchart: 'diagram',
+  graph: 'plot',
+  chart: 'plot',
+  vector: 'vectors',
+  arrows: 'vectors',
+  equation_chemical: 'reaction',
+  highlight: 'annotate',
+  arrow: 'annotate',
+  underline: 'annotate',
+  circle: 'annotate',
+};
+
 /** Other names models use for a field, by operation. */
 const FIELD_ALIASES: Partial<Record<BoardOpKind, Record<string, string>>> = {
   heading: { content: 'text', title: 'text', value: 'text' },
@@ -144,8 +175,41 @@ export function tidyOps(raw: unknown): { ops: unknown; fixes: string[] } {
       }
     }
 
+    // A name close to one of the thirteen: "equation", "list", "graph".
+    if (typeof op.op === 'string' && !isKind(op.op)) {
+      const known = OP_ALIASES[op.op.toLowerCase()];
+      if (known) {
+        fixes.add(`the operation is "${known}", not "${op.op}"`);
+        op.op = known;
+      }
+    }
+
+    // The operation named twice: {"op":"derive","derive":[...]}, or a name
+    // left in "op" that does not match the content: {"op":"math","derive":[...]}.
+    if (isKind(op.op)) {
+      const other = Object.keys(op).filter(isKind)[0];
+      const own = MAIN_FIELD[op.op];
+      if (other && other !== 'text' && (other === op.op || (own && op[own] === undefined))) {
+        const value = op[other];
+        delete op[other];
+        op.op = other;
+        if (isObject(value)) Object.assign(op, value);
+        else if (MAIN_FIELD[other] && op[MAIN_FIELD[other] as string] === undefined) op[MAIN_FIELD[other] as string] = value;
+        fixes.add(`write ${OP_SHAPES[other]}`);
+      }
+    }
+
     if (!isKind(op.op)) return op;
     const kind = op.op;
+
+    // Only math has a label. On anything else it is a name to point at, or nothing.
+    if (kind !== 'math' && op.label !== undefined) {
+      if (op.id === undefined && typeof op.label === 'string' && /^[A-Za-z0-9_-]{1,32}$/.test(op.label)) {
+        op.id = op.label;
+      }
+      delete op.label;
+      fixes.add('only math has a "label"; a name to point at later goes in "id"');
+    }
 
     for (const [from, to] of Object.entries(FIELD_ALIASES[kind] ?? {})) {
       if (op[from] !== undefined && op[to] === undefined) {
@@ -243,7 +307,11 @@ export function tidyOps(raw: unknown): { ops: unknown; fixes: string[] } {
             return e;
           })
         : list;
-    if (kind === 'diagram') op.nodes = fixToneIn(op.nodes, 'a diagram node');
+    if (kind === 'diagram') {
+      op.nodes = fixToneIn(op.nodes, 'a diagram node');
+      // Boxes with no arrows between them are still a diagram.
+      if (op.edges === undefined) op.edges = [];
+    }
     if (kind === 'vectors') {
       op.arrows = fixToneIn(op.arrows, 'an arrow');
       if (Array.isArray(op.arrows)) {

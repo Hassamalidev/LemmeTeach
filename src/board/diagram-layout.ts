@@ -43,7 +43,11 @@ export interface DiagramLayout {
 
 type Diagram = Extract<BoardOp, { op: 'diagram' }>;
 
-const NODE_H = 44;
+const LINE_H = 18;
+const BASE_H = 44;
+const MAX_LINES = 3;
+/** Roughly how wide a character of a node label is. */
+const LABEL_CHAR_W = 7.6;
 const H_GAP = 44;
 const V_GAP = 62;
 const CHAR_W = 8.2;
@@ -51,6 +55,46 @@ const PAD_X = 22;
 
 function nodeWidth(label: string): number {
   return Math.max(84, Math.min(210, label.length * CHAR_W + PAD_X * 2));
+}
+
+/**
+ * A label broken across up to three lines to fit its box. Cutting a label
+ * short loses what the diagram was there to say: "France is pulled in by R…"
+ * was a real board. Only a label too long for three lines is shortened.
+ */
+export function wrapLabel(label: string, w: number): string[] {
+  const max = Math.max(4, Math.floor((w - 20) / LABEL_CHAR_W));
+  const lines: string[] = [];
+  let line = '';
+  for (const raw of label.split(/\s+/).filter(Boolean)) {
+    let word = raw;
+    while (word.length > max) {
+      if (line) {
+        lines.push(line);
+        line = '';
+      }
+      lines.push(word.slice(0, max));
+      word = word.slice(max);
+    }
+    if (line && `${line} ${word}`.length > max) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = line ? `${line} ${word}` : word;
+    }
+  }
+  if (line) lines.push(line);
+  if (lines.length <= MAX_LINES) return lines;
+  const kept = lines.slice(0, MAX_LINES);
+  const last = kept[MAX_LINES - 1] ?? '';
+  kept[MAX_LINES - 1] = `${last.slice(0, Math.max(1, max - 1))}…`;
+  return kept;
+}
+
+/** Every node in a diagram is the same height: the tallest label sets it. */
+function nodeHeight(op: Diagram): number {
+  const lines = Math.max(1, ...op.nodes.map((n) => wrapLabel(n.label, nodeWidth(n.label)).length));
+  return BASE_H + (lines - 1) * LINE_H;
 }
 
 export function layoutDiagram(op: Diagram, maxWidth: number): DiagramLayout {
@@ -67,6 +111,7 @@ export function layoutDiagram(op: Diagram, maxWidth: number): DiagramLayout {
 /* ----------------------------- flow and tree ----------------------------- */
 
 function layered(op: Diagram, maxWidth: number): DiagramLayout {
+  const NODE_H = nodeHeight(op);
   const incoming = new Map<string, number>();
   for (const n of op.nodes) incoming.set(n.id, 0);
   for (const e of op.edges) incoming.set(e.to, (incoming.get(e.to) ?? 0) + 1);
@@ -159,6 +204,7 @@ function parentMean(
 /* --------------------------------- cycle --------------------------------- */
 
 function radial(op: Diagram, maxWidth: number): DiagramLayout {
+  const NODE_H = nodeHeight(op);
   const n = op.nodes.length;
   const widest = Math.max(...op.nodes.map((x) => nodeWidth(x.label)));
   const r = Math.min(
@@ -195,6 +241,7 @@ function radial(op: Diagram, maxWidth: number): DiagramLayout {
 /* ---------------------------------- web ---------------------------------- */
 
 function web(op: Diagram, maxWidth: number): DiagramLayout {
+  const NODE_H = nodeHeight(op);
   const n = op.nodes.length;
   const cols = Math.ceil(Math.sqrt(n));
   const rows = Math.ceil(n / cols);

@@ -775,6 +775,8 @@ The interruption path, and the part that makes this feel like a teacher.
 
 The learner decides when they have understood. The solver may not decide it for them and may not quiz them to find out; this is enforced by the session holding the loop, not by the prompt.
 
+Stopping (`Esc`, or leaving) freezes the voice and the board, says **Stopped**, closes the box and offers **Back to the question box**. Once a demo, replay or shared solution has finished there is no model to take a question, so the box says so instead of accepting one.
+
 A question asked after the solution has finished works the same way: the solver is run again from the end of its own conversation, so it remembers the whole solution.
 
 In the demo there is no model to answer, so the panel says so: the walkthrough simply carries on with its next step.
@@ -883,7 +885,7 @@ Every turn re-sends the system prompt, the tool definitions and the conversation
 - **A budget, held by a test.** The solver's fixed cost per turn — system prompt plus tool definitions — was about 6,050 tokens and is now about 3,750. A test fails if it passes 4,200, because this number creeps.
 - **Few tools.** The solver is offered five tools (six with Wikipedia on) and the reader two. Every definition is paid for on every turn.
 - **Few turns.** Numbers go into the step as `{{expression}}` rather than costing a `compute` turn first: in a live run, three of seventeen turns were only fetching numbers. `save_note` and `end_lesson` in the same turn.
-- **No turn lost to a slip.** A rejected call costs a whole turn, and a model that cannot see its mistake repeats it: one live run spent five turns writing `{"derive":[…]}` instead of `{"op":"derive","lines":[…]}`. The unambiguous slips — that one, a tone the board does not have, a number sent as a string — are put right at the bus before checking (`src/board/tidy.ts`), and the result tells the model how to write it. A call that still fails quotes the right shape back.
+- **No turn lost to a slip.** A rejected call costs a whole turn, and a model that cannot see its mistake repeats it: one live run spent five turns writing `{"derive":[…]}` instead of `{"op":"derive","lines":[…]}`. The unambiguous slips — that one, an operation called by a near name, a tone the board does not have, a diagram with no edges, a number sent as a string, unbalanced braces — are put right at the bus before checking (`src/board/tidy.ts`), an `annotate` pointing at nothing is left out and the model told, and the result tells the model how to write it. A call that still fails quotes the right shape back.
 - **A short conversation.** Compaction starts at about 8,000 tokens of conversation and keeps the opening and the last four turns; everything older becomes a short deterministic summary of what is on the board. On a service with no prompt cache this is the difference between a long question costing linearly and quadratically.
 - **Prompt caching.** Through OpenRouter every request asks for the prefix to be cached, so it is read back at a tenth of the price. Anything that changes the prefix mid-solution — reordering tools, editing the system prompt per turn — throws that away, so do not.
 - **Cheapest model that solves well.** The standard tier runs every agent on a small, fast model (`src/providers/managed.ts`). Re-check the gateway's price list when it changes.

@@ -196,7 +196,7 @@ export const PlanLessonInput = z
           })
           .strict(),
       )
-      .min(3)
+      .min(1)
       .max(5),
     prerequisites: z
       .array(
@@ -229,12 +229,12 @@ export const PlanLessonInput = z
           })
           .strict(),
       )
-      .min(3)
+      .min(1)
       .max(9),
     estimatedMinutes: z
       .number()
       .int()
-      .min(3)
+      .min(1)
       .max(60)
       .describe('An honest estimate. Learners plan their time around it.'),
   })

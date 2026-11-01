@@ -72,13 +72,13 @@ describe('plan_lesson', () => {
     expect(PlanLessonInput.safeParse(base).success).toBe(true);
   });
 
-  it('rejects fewer than three objectives', () => {
-    const r = PlanLessonInput.safeParse({ ...base, objectives: base.objectives.slice(0, 2) });
-    expect(r.success).toBe(false);
+  it('rejects no objectives, and accepts a single one for a simple question', () => {
+    expect(PlanLessonInput.safeParse({ ...base, objectives: [] }).success).toBe(false);
+    expect(PlanLessonInput.safeParse({ ...base, objectives: base.objectives.slice(0, 1) }).success).toBe(true);
   });
 
-  it('rejects fewer than three steps, and accepts a short worked solution', () => {
-    expect(PlanLessonInput.safeParse({ ...base, steps: base.steps.slice(0, 2) }).success).toBe(false);
+  it('rejects no steps, and accepts a short worked solution', () => {
+    expect(PlanLessonInput.safeParse({ ...base, steps: [] }).success).toBe(false);
     expect(PlanLessonInput.safeParse({ ...base, steps: base.steps.slice(0, 3) }).success).toBe(true);
   });
 

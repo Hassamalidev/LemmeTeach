@@ -231,6 +231,18 @@ export function BoardScroll({
     };
   }, [follow, steps.length]);
 
+  // The view gets shorter when a bar appears under it. Without this, the end
+  // of the solution slides out of sight just as it finishes.
+  useEffect(() => {
+    const page = pageRef.current;
+    if (!page) return;
+    const ro = new ResizeObserver(() => {
+      if (following.current) follow(false);
+    });
+    ro.observe(page);
+    return () => ro.disconnect();
+  }, [follow]);
+
   /** The learner moved the page themselves: stop following until they come back. */
   const letGo = useCallback(() => {
     if (!following.current) return;

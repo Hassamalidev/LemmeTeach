@@ -52,7 +52,7 @@ export function SettingsPanel({
             {credit && (
               <div className="dim small" style={{ marginTop: 4 }}>
                 ${Math.min(credit.remainingUsd, plan.creditUsd).toFixed(2)} of this month’s $
-                {plan.creditUsd.toFixed(2)} lesson credit is left.
+                {plan.creditUsd.toFixed(2)} credit is left.
               </div>
             )}
             {storedCode() && (
@@ -107,7 +107,7 @@ export function SettingsPanel({
               value={settings.quality}
               onChange={(e) => onUpdate({ quality: e.target.value as Quality })}
             >
-              <option value="standard">Standard — right for most lessons</option>
+              <option value="standard">Standard — right for most questions</option>
               <option value="deep">Deeper — for hard derivations and proofs</option>
             </select>
             <span className="hint">
@@ -145,8 +145,8 @@ export function SettingsPanel({
               )}
             </select>
             <span className="hint">
-              Near the limit the tutor starts wrapping up, so a lesson closes properly rather than
-              stopping mid-sentence. Longer lessons use more of your month.
+              Near the limit the tutor starts wrapping up, so a solution closes properly rather
+              than stopping mid-sentence. Longer solutions use more of your month.
             </span>
           </label>
         )}
@@ -158,7 +158,7 @@ export function SettingsPanel({
             onChange={(e) => onUpdate({ sandboxEnabled: e.target.checked })}
           />
           <span>
-            Let lessons run code
+            Let solutions run code
             <br />
             <span className="dim small">
               Runs in an isolated frame with no network and no access to anything else in this
@@ -174,7 +174,7 @@ export function SettingsPanel({
             onChange={(e) => onUpdate({ wikiEnabled: e.target.checked })}
           />
           <span>
-            Let lessons look things up on Wikipedia
+            Let solutions look things up on Wikipedia
             <br />
             <span className="dim small">
               Off by default. Turn it on if you would rather the tutor checked a date or a
@@ -214,9 +214,11 @@ export function SettingsPanel({
         {showDataNote && (
           <div className="notice" style={{ marginTop: 14 }}>
             <p className="small">
-              Your progress, notes and uploaded material are stored in this browser and nowhere
-              else. Lessons go from this tab straight to the AI service that runs the model, over
-              HTTPS; they do not pass through LemmeTeach’s servers.
+              Your solved questions and notes are stored in this browser. Questions and uploads
+              go from this tab straight to the AI service that runs the model, over HTTPS; they do
+              not pass through LemmeTeach’s servers. A solution you choose to share is stored until
+              you stop sharing it, without your uploads. We count how often things happen, with no
+              names and nothing you typed.
             </p>
             <p className="small">
               If you use your own API key, it is stored in this browser and sent only to the

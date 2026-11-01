@@ -91,6 +91,37 @@ describe('tidying operations', () => {
     expect(balanceBraces('\\{a\\}')).toBe('\\{a\\}');
   });
 
+  it('reads the variations a real model sent', () => {
+    const tex = 'x = 1';
+    const { ops } = tidyOps([
+      { op: 'derive', derive: [{ tex }] },
+      { op: 'math', derive: [{ tex }] },
+      { op: 'derive', lines: [{ tex }], label: 'area-formula' },
+      { op: 'bullets', items: ['one'], label: 'A caption' },
+    ]);
+    expect(fits(ops)).toBe(true);
+    expect((ops as { op: string; id?: string }[]).map((o) => o.op)).toEqual(['derive', 'derive', 'derive', 'bullets']);
+    expect((ops as { id?: string }[])[2]?.id).toBe('area-formula');
+  });
+
+  it('reads an operation by a name close to the real one', () => {
+    const { ops, fixes } = tidyOps([
+      { op: 'equation', tex: 'x = 1' },
+      { op: 'list', items: ['one'] },
+      { op: 'title', text: 'Given' },
+      { op: 'graph', fns: ['x^2'], domain: [0, 1] },
+    ]);
+    expect(fits(ops)).toBe(true);
+    expect(fixes.length).toBe(4);
+  });
+
+  it('accepts a diagram with no arrows', () => {
+    const { ops } = tidyOps([
+      { op: 'diagram', layout: 'web', nodes: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }] },
+    ]);
+    expect(fits(ops)).toBe(true);
+  });
+
   it('leaves correct operations exactly as they were, and says nothing', () => {
     const good = [
       { op: 'heading', text: 'Given' },

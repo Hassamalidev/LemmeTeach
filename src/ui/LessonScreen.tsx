@@ -156,11 +156,16 @@ export function LessonScreen({
   const interrupted = useRef(new Set<string>());
   const acknowledged = useRef(new Set<string>());
 
+  // Stopped by the learner: the voice and the board freeze where they are.
+  // After a failure the step already being explained may still finish.
+  const stopped =
+    state.phase === 'ABORTED' && (state.error === null || state.error.kind === 'AbortError');
+
   const { reveal: spoken, progress } = useReveal(narrating, {
     rate: settings.rate,
     voiceName: settings.voiceName,
     muted: settings.muted,
-    paused: paused || state.pending !== null || raising !== 'no' || heldForAnswer,
+    paused: paused || stopped || state.pending !== null || raising !== 'no' || heldForAnswer,
     reducedMotion,
     nonce: replayNonce,
     onStepDone: (id) => {
@@ -251,7 +256,15 @@ export function LessonScreen({
     [queued, asides],
   );
 
-  const canAsk = state.phase !== 'PLANNING' && state.phase !== 'CHECKING' && state.error === null;
+  const noModel = access === 'demo' || access === 'replay' || access === 'shared';
+  const canAsk =
+    state.phase !== 'PLANNING' &&
+    state.phase !== 'CHECKING' &&
+    state.phase !== 'ABORTED' &&
+    state.error === null &&
+    // Once a demo, replay or shared solution has played out there is no model
+    // to take a question, and no next step to carry on to.
+    !(noModel && state.phase === 'REVIEW');
 
   useKeyboard({
     enabled: state.pending === null && raising === 'no' && drawer === 'none',
@@ -270,7 +283,9 @@ export function LessonScreen({
   });
 
   const accent = SUBJECT_ACCENTS[session.subject];
-  const status = finished
+  const status = stopped
+    ? PHASE_LABELS.ABORTED
+    : finished
     ? 'Done'
     : askIfClear
       ? 'Waiting to hear whether that made sense'
@@ -333,7 +348,7 @@ export function LessonScreen({
 
       <div className="lesson-body">
         <main className="stage">
-          {state.error && (
+          {state.error && state.error.kind !== 'AbortError' && (
             <div className="notice notice-error" style={{ margin: '12px 16px 0' }} role="alert">
               {/* A rejected key on a plan means the plan is no longer connected
                   here, which the learner can fix in one press (§17.1). */}
@@ -423,9 +438,11 @@ export function LessonScreen({
             engaged={raising !== 'no'}
             focusSignal={focusAsk}
             placeholder={
-              state.error
+              state.error || stopped
                 ? 'Stopped. What was written so far is saved.'
-                : !canAsk
+                : noModel && state.phase === 'REVIEW'
+                  ? 'To ask about this, have the question solved yourself'
+                  : !canAsk
                   ? 'Reading your question…'
                   : finished
                     ? 'Ask a question about this solution'
@@ -458,6 +475,13 @@ export function LessonScreen({
                   </button>
                   <button className="btn" onClick={() => session.resumeAfterAside(false)}>
                     Explain it another way
+                  </button>
+                </div>
+              ) : stopped ? (
+                <div role="group" aria-label="The solution was stopped" className="row">
+                  <strong>You stopped this solution.</strong>
+                  <button className="btn btn-primary" onClick={onExit}>
+                    Back to the question box
                   </button>
                 </div>
               ) : finished ? (

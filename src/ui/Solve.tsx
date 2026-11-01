@@ -348,7 +348,7 @@ export function Solve({
         />
 
         <p className="dim small" style={{ marginTop: 18 }}>
-          You can raise a hand at any point while it is solving and ask your own question. It
+          You can stop it at any point while it is solving and ask your own question. It
           answers, then carries on where it left off.
         </p>
 

@@ -49,13 +49,24 @@ Example: say "I differentiate the first part and leave the second alone, then th
     // drawn and said is a computed figure, not one the model made up.
     const numbers: Record<string, string> = {};
     const unworkable: string[] = [];
-    const input = fillNumbersDeep(raw, numbers, unworkable);
+    const filled = fillNumbersDeep(raw, numbers, unworkable);
     if (unworkable.length) {
       return {
         ok: false,
         message: `Some numbers could not be worked out, so nothing was drawn: ${unworkable.slice(0, 3).join('; ')}. Use mathjs syntax inside {{ }} and send the step again.`,
       };
     }
+
+    // A pointer at something that is not there is not worth a whole turn: the
+    // step is drawn without it, and the model is told.
+    const here = new Set(filled.board.flatMap((op) => (op.id ? [op.id] : [])));
+    const known = ctx.board.knownIds();
+    const lost = filled.board.flatMap((op) =>
+      op.op === 'annotate' && !known.has(op.target) && !here.has(op.target) ? [op.target] : [],
+    );
+    const input = lost.length
+      ? { ...filled, board: filled.board.filter((op) => !(op.op === 'annotate' && lost.includes(op.target))) }
+      : filled;
 
     // Shape is already guaranteed by the bus; this pass adds the contextual
     // rules the schema cannot express — annotate targets, real figure ids,
@@ -102,9 +113,15 @@ Example: say "I differentiate the first part and leave the second alone, then th
 
     // Models otherwise keep writing off the bottom of the page, so the
     // instruction goes in the result itself rather than only in the prompt.
-    const note = outcome.boardFull
-      ? 'This part of the board is getting long. Set "clear": true on your next teach_step to start a fresh section. Everything above stays on screen and the learner can scroll up to it, but annotate can only point at things in the current section.'
-      : undefined;
+    const notes = [
+      outcome.boardFull
+        ? 'This part of the board is getting long. Set "clear": true on your next teach_step to start a fresh section. Everything above stays on screen and the learner can scroll up to it, but annotate can only point at things in the current section.'
+        : '',
+      lost.length
+        ? `The step was drawn, but annotate was left out: nothing in this section has the id "${lost.join('", "')}". To point at something, give it an id when you write it.`
+        : '',
+    ].filter(Boolean);
+    const note = notes.length ? notes.join(' ') : undefined;
 
     return {
       ok: true,

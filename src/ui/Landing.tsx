@@ -39,7 +39,7 @@ const HOW_IT_GOES: { title: string; text: string }[] = [
   },
   {
     title: 'You can interrupt',
-    text: 'Raise a hand at any point and ask your own question. It answers, then carries on where it left off.',
+    text: 'Stop it at any point and ask your own question. It answers, then carries on where it left off.',
   },
 ];
 

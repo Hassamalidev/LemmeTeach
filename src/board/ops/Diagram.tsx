@@ -7,7 +7,7 @@
  * explanation.
  */
 import type { BoardOp } from '../op-schema';
-import { layoutDiagram } from '../diagram-layout';
+import { layoutDiagram, wrapLabel } from '../diagram-layout';
 import { shown, toneClass, useRegisterOp, type OpProps } from './common';
 
 type DiagramOpType = Extract<BoardOp, { op: 'diagram' }>;
@@ -57,10 +57,12 @@ export function DiagramOpView({ op, revealed, register }: OpProps<DiagramOpType>
                 markerEnd={`url(#arrow-${op.id ?? 'd'})`}
               />
               {e.label ? (
+                // Beside a line that runs up or down, above one that runs across,
+                // so the line never goes through the words.
                 <text
-                  x={e.lx}
-                  y={e.ly - 6}
-                  textAnchor="middle"
+                  x={Math.abs(Math.sin((e.angle * Math.PI) / 180)) > 0.7 ? e.lx + 9 : e.lx}
+                  y={Math.abs(Math.sin((e.angle * Math.PI) / 180)) > 0.7 ? e.ly + 4 : e.ly - 7}
+                  textAnchor={Math.abs(Math.sin((e.angle * Math.PI) / 180)) > 0.7 ? 'start' : 'middle'}
                   className="edge-label"
                   fill="var(--board-ink-dim)"
                 >
@@ -78,20 +80,18 @@ export function DiagramOpView({ op, revealed, register }: OpProps<DiagramOpType>
             style={{ animationDelay: `${i * 60}ms` }}
           >
             <rect x={n.x} y={n.y} width={n.w} height={n.h} rx="8" />
-            <text x={n.x + n.w / 2} y={n.y + n.h / 2 + 5} textAnchor="middle">
-              {fit(n.label, n.w)}
+            <text textAnchor="middle">
+              {wrapLabel(n.label, n.w).map((line, l, lines) => (
+                <tspan key={l} x={n.x + n.w / 2} y={n.y + n.h / 2 + 5 + (l - (lines.length - 1) / 2) * 18}>
+                  {line}
+                </tspan>
+              ))}
             </text>
           </g>
         ))}
       </svg>
     </div>
   );
-}
-
-/** Truncate a label that cannot fit its box, rather than letting it overflow. */
-function fit(label: string, w: number): string {
-  const max = Math.floor((w - 20) / 7.6);
-  return label.length <= max ? label : `${label.slice(0, Math.max(1, max - 1))}…`;
 }
 
 function describe(op: DiagramOpType): string {
