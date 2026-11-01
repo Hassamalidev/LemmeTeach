@@ -7,6 +7,8 @@
  */
 import { validateOps } from '../board/validate';
 import { BOARD_OPS_WIRE } from '../board/op-schema';
+import { explainOps, tidyOps } from '../board/tidy';
+import { fillNumbersDeep } from './compute';
 import type { Tool, ToolOutcome } from './index';
 import type { ToolContext } from './context';
 import { TeachStepInput, type TeachStepIn } from './schemas';
@@ -17,6 +19,8 @@ export const teachStep: Tool = {
 
 "say" is read aloud by a speech engine: plain spoken words only, no markdown, LaTeX or symbols ("d by d x", not the notation). "board" carries the notation and structure, in the operation shapes listed under THE BOARD. The two complement each other and never repeat each other.
 
+Numbers are never worked out in your head: write {{expression}} where a number goes, in "say" or on the board, and it is computed as the step is drawn — "{{20*sin(35 deg)}}" becomes 11.47, "{{9.81*2 | 3}}" 19.6. The result lists the values.
+
 Example: say "I differentiate the first part and leave the second alone, then the other way round, and add." board [{"op":"derive","lines":[{"tex":"= 2x\\sin x + x^2\\cos x","note":"first' second + first second'"}]}]`,
   schema: TeachStepInput,
   wire: (schema) => ({
@@ -26,11 +30,33 @@ Example: say "I differentiate the first part and leave the second alone, then th
       board: { ...BOARD_OPS_WIRE, description: schema.properties?.board?.description },
     },
   }),
+  prepare: (input) => {
+    if (typeof input !== 'object' || input === null) return { input, notes: [] };
+    const { ops, fixes } = tidyOps((input as { board?: unknown }).board);
+    return { input: { ...input, board: ops }, notes: fixes };
+  },
+  explain: (input, paths) =>
+    explainOps(
+      (input as { board?: unknown } | null)?.board,
+      paths.filter((p) => p[0] === 'board' && typeof p[1] === 'number').map((p) => p[1] as number),
+    ),
   agents: ['tutor'],
   parallelSafe: false,
   suspends: false,
 
-  async run(input: TeachStepIn, ctx: ToolContext): Promise<ToolOutcome> {
+  async run(raw: TeachStepIn, ctx: ToolContext): Promise<ToolOutcome> {
+    // The numbers written as {{expression}} are worked out first, so what is
+    // drawn and said is a computed figure, not one the model made up.
+    const numbers: Record<string, string> = {};
+    const unworkable: string[] = [];
+    const input = fillNumbersDeep(raw, numbers, unworkable);
+    if (unworkable.length) {
+      return {
+        ok: false,
+        message: `Some numbers could not be worked out, so nothing was drawn: ${unworkable.slice(0, 3).join('; ')}. Use mathjs syntax inside {{ }} and send the step again.`,
+      };
+    }
+
     // Shape is already guaranteed by the bus; this pass adds the contextual
     // rules the schema cannot express — annotate targets, real figure ids,
     // parseable plot expressions, and whether it all fits on a page.
@@ -86,6 +112,7 @@ Example: say "I differentiate the first part and leave the second alone, then th
         opsRendered: outcome.opsRendered,
         page: outcome.page,
         boardFull: outcome.boardFull,
+        ...(Object.keys(numbers).length ? { numbers } : {}),
       },
       message: note,
     };

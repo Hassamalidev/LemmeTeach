@@ -8,13 +8,19 @@ import { useState } from 'react';
 import type { Session } from '../orchestrator/session';
 import type { SubjectId } from '../core/types';
 import { SUBJECT_ACCENTS } from '../core/types';
+import { ShareBox } from './ShareBox';
 
 export function Review({
   session,
   subject,
   onHome,
   onAgain,
+  canShare,
+  againLabel,
 }: {
+  /** A solution of their own that finished. Not a demo, and not someone else's link. */
+  canShare: boolean;
+  againLabel: string;
   session: Session;
   subject: SubjectId;
   onHome: () => void;
@@ -41,6 +47,8 @@ export function Review({
             </div>
           </div>
         )}
+
+        {canShare && state.ending && <ShareBox record={session.solution()} />}
 
         {state.notes.length > 0 && (
           <section style={{ marginBottom: 32 }}>
@@ -89,7 +97,7 @@ export function Review({
 
         <div className="row">
           <button className="btn btn-primary" onClick={onAgain}>
-            Solve another question
+            {againLabel}
           </button>
           <button className="btn" onClick={onHome}>
             Done

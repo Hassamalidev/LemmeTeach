@@ -180,12 +180,12 @@ const SERVICES: Service[] = [
   compatible('hyperbolic', 'Hyperbolic', 'https://api.hyperbolic.xyz/v1', null, [
     'meta-llama/Llama-3.3-70B-Instruct',
   ]),
-  // TESTING ONLY — a local Ollama, for trying the product without a paid key.
-  // Comment this entry out, and its line in public/csp.js, before shipping.
-  // Ollama ignores the key, so any text of twelve characters or more will do.
-  compatible('ollama', 'Ollama (local testing)', 'http://localhost:11434/v1', null, [
-    'gemma4:31b-cloud',
-  ]),
+  // Development only: a local Ollama, for trying the product without a paid
+  // key. It is not in a production build, whatever else changes. Ollama
+  // ignores the key, so any text of twelve characters or more will do.
+  ...(import.meta.env.DEV
+    ? [compatible('ollama', 'Ollama (local testing)', 'http://localhost:11434/v1', null, ['gemma4:31b-cloud'])]
+    : []),
 ];
 
 /** The services, for the "which one is it?" list on the own-key screen. */

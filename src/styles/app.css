@@ -861,6 +861,16 @@ kbd {
   white-space: nowrap;
 }
 
+/* The wordmark as a way home: looks the same, behaves as a button. */
+.wordmark-link {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+
 /* A stick of chalk, at the angle it is held. */
 .wordmark-mark {
   width: 16px;
@@ -932,6 +942,27 @@ kbd {
   color: #6fbf8f;
 }
 
+/* The home page's main action is asking something, not reading about it. */
+.hero-ask {
+  margin: 20px 0 10px;
+}
+
+.hero-ask textarea {
+  min-height: 92px;
+}
+
+.code-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--chrome-line);
+  border-radius: 8px;
+  background: var(--chrome-raised);
+  overflow-wrap: anywhere;
+}
+
 .hero-figure {
   margin: 0;
   min-width: 0;
@@ -987,6 +1018,15 @@ kbd {
   .landing-header .btn-quiet {
     padding: 8px 6px;
     font-size: 14px;
+  }
+
+  /* The header stays one line; the plans are a link under the question box. */
+  .landing-header .btn-primary {
+    display: none;
+  }
+
+  .hero-ask textarea {
+    min-height: 76px;
   }
 
   .compare {

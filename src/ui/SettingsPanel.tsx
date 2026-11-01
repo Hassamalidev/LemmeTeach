@@ -8,7 +8,8 @@
 import { useState } from 'react';
 import { formatUsd, type Plan } from '../../shared/plans';
 import { DEEP_COST_MULTIPLE, type Credit, type Quality } from '../providers/managed';
-import { billingPortalUrl } from '../billing/links';
+import { billingPortalUrl, NO_PORTAL } from '../billing/links';
+import { storedCode } from '../billing/license';
 import type { BoardTheme, Settings } from '../storage/settings';
 
 export function SettingsPanel({
@@ -54,15 +55,24 @@ export function SettingsPanel({
                 {plan.creditUsd.toFixed(2)} lesson credit is left.
               </div>
             )}
+            {storedCode() && (
+              <div className="dim small" style={{ marginTop: 6 }}>
+                Access code, for your other devices: <span className="mono">{storedCode()}</span>
+              </div>
+            )}
             <div className="row" style={{ marginTop: 10 }}>
-              <a
-                className="btn"
-                href={billingPortalUrl()}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Manage subscription
-              </a>
+              {billingPortalUrl() ? (
+                <a
+                  className="btn"
+                  href={billingPortalUrl() ?? undefined}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Manage subscription
+                </a>
+              ) : (
+                <span className="dim small">{NO_PORTAL}</span>
+              )}
             </div>
           </div>
         ) : settings.ownKey ? (
@@ -213,7 +223,7 @@ export function SettingsPanel({
               provider that issued it. It never reaches LemmeTeach’s servers.
             </p>
             <p className="small" style={{ marginBottom: 0 }}>
-              Your license key is stored in this browser and sent only to LemmeTeach, to connect
+              Your access code is stored in this browser and sent only to LemmeTeach, to connect
               your plan. Signing out removes it from this device and leaves your subscription
               untouched.
             </p>

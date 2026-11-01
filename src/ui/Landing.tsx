@@ -1,12 +1,12 @@
 /**
  * The landing page (§29).
  *
- * Shown to anyone without a license on this device. The board is the pitch,
+ * The first thing every visit shows. The board is the pitch,
  * so the hero holds a real one that writes itself out the way it does in a
  * lesson, and every number on the page comes from shared/plans.ts.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { PLANS, formatUsd, type Plan } from '../../shared/plans';
+import { PLANS, formatUsd, type PlanId } from '../../shared/plans';
 import { Board } from '../board/Board';
 import { BoardModel, revealUnits, type BoardStep } from '../board/page';
 import { prefersReducedMotion } from '../board/reveal';
@@ -14,7 +14,9 @@ import { validateOps } from '../board/validate';
 import { SHOWCASES } from './showcase';
 import { OWN_KEY_PROVIDERS } from '../providers/own-key';
 import type { SubjectId } from '../core/types';
-import { checkoutUrl } from '../billing/links';
+import { filesFrom } from '../solve/attachments';
+import { PlanCards } from './Plans';
+import { track } from '../growth/track';
 import type { BoardTheme } from '../storage/settings';
 import { SubjectExplorer, type ExplorerBoard } from './SubjectExplorer';
 
@@ -70,15 +72,15 @@ const QUESTIONS: { q: string; a: string }[] = [
   },
   {
     q: 'Where does my data live?',
-    a: 'On your device. Your solved questions and their notes are stored in your browser. Questions and uploads travel from your browser straight to the AI service that runs the model; they do not pass through our servers. Payment is handled by Lemon Squeezy, so we never see your card.',
+    a: 'On your device. Your solved questions and their notes are stored in your browser. Questions and uploads travel from your browser straight to the AI service that runs the model; they do not pass through our servers. The exception is one you choose: a solution you share as a link is stored until you stop sharing it. We count how often things happen, like a question being solved, with no names and nothing you typed. Payment is handled by Paddle, so we never see your card.',
   },
   {
     q: 'Can I use it on two devices?',
-    a: 'Yes, with the same license key, one device at a time. Your history is kept on each device separately and is not synced between them.',
+    a: 'Yes, with the access code you are shown after paying, one device at a time. Your history is kept on each device separately and is not synced between them.',
   },
   {
     q: 'How do I cancel?',
-    a: 'From the link in your receipt email, or from Manage subscription in Settings. You keep access until the end of the month you paid for.',
+    a: 'From the link in the receipt email Paddle sends you, or from Manage subscription in Settings. You keep access until the end of the month you paid for.',
   },
 ];
 
@@ -88,7 +90,22 @@ export function Landing({
   onDemo,
   onActivate,
   onOwnKey,
+  connected,
+  onStart,
+  onChoose,
+  onAsk,
+  onAttach,
 }: {
+  /** Solve what was typed in the box on this page. */
+  onAsk: (question: string) => void;
+  /** Files were pasted or dropped: carry on from the question screen. */
+  onAttach: (question: string, files: File[]) => void;
+  /** Open checkout for a plan. */
+  onChoose: (plan: PlanId) => void;
+  /** Set when a plan or an own key is ready on this device: says which. */
+  connected: string | null;
+  /** Straight to the question box, for someone who can already solve. */
+  onStart: () => void;
   onOwnKey: () => void;
   theme: BoardTheme;
   /** Open scrolled to the plans, for someone who pressed "See plans" in the demo. */
@@ -97,6 +114,7 @@ export function Landing({
   onActivate: () => void;
 }): JSX.Element {
   const pricing = useRef<HTMLElement>(null);
+  useEffect(() => track('landing_view'), []);
   const previews = useMemo(buildPreviews, []);
   const { preview, reveal } = useShowcase(previews);
   // One example board per subject for the explorer: the first in the rotation.
@@ -118,7 +136,11 @@ export function Landing({
   }, [startAtPricing]);
 
   const cheapest = PLANS[0];
-  const bestValue = bestPerLesson();
+  const [question, setQuestion] = useState('');
+  const ready = question.trim().length >= 3;
+  const ask = (): void => {
+    if (ready) onAsk(question.trim());
+  };
 
   return (
     <div className="screen landing">
@@ -129,15 +151,25 @@ export function Landing({
             LemmeTeach
           </span>
           <nav className="row" aria-label="Site">
-            <button className="btn-quiet" onClick={onOwnKey}>
-              Use my own API key
-            </button>
-            <button className="btn-quiet" onClick={onActivate}>
-              I have a license key
-            </button>
-            <button className="btn btn-primary" onClick={toPricing}>
-              See plans
-            </button>
+            {connected ? (
+              <>
+                <button className="btn btn-primary" onClick={onStart}>
+                  Start solving
+                </button>
+              </>
+            ) : (
+              <>
+                <button className="btn-quiet" onClick={onOwnKey}>
+                  Use my own API key
+                </button>
+                <button className="btn-quiet" onClick={onActivate}>
+                  I have an access code
+                </button>
+                <button className="btn btn-primary" onClick={toPricing}>
+                  See plans
+                </button>
+              </>
+            )}
           </nav>
         </div>
       </header>
@@ -149,19 +181,59 @@ export function Landing({
             <h1>
               Stuck on a question? Watch it <em>solved step by step</em>.
             </h1>
+            <div
+              className="ask-box hero-ask"
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                const files = filesFrom(e.dataTransfer);
+                if (files.length) onAttach(question, files);
+              }}
+            >
+              <textarea
+                value={question}
+                rows={3}
+                aria-label="Your question"
+                placeholder="Type your question, or paste a screenshot of it"
+                onChange={(e) => setQuestion(e.target.value)}
+                onPaste={(e) => {
+                  const files = filesFrom(e.clipboardData);
+                  if (files.length) {
+                    e.preventDefault();
+                    onAttach(question, files);
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) ask();
+                }}
+              />
+              <div className="ask-actions">
+                <button className="btn-quiet small" onClick={onStart}>
+                  Attach a file
+                </button>
+                <span className="dim small ask-hint">
+                  {connected ?? 'Any subject, any level. With a plan or your own API key.'}
+                </span>
+                <button className="btn btn-primary btn-lg" onClick={ask} disabled={!ready}>
+                  Solve it
+                </button>
+              </div>
+            </div>
+            <div className="row">
+              {!connected && (
+                <button className="btn-quiet" onClick={onDemo}>
+                  Try the demo
+                </button>
+              )}
+              <button className="btn-quiet" onClick={toPricing}>
+                See plans
+              </button>
+            </div>
             <p className="lede">
               Type it, paste a screenshot, or attach the file. LemmeTeach works through it on a
               whiteboard one step at a time and explains each step aloud, the way a teacher
               would. Stop it whenever you want to ask something.
             </p>
-            <div className="row">
-              <button className="btn btn-primary btn-lg" onClick={onDemo}>
-                Try the demo
-              </button>
-              <button className="btn btn-lg" onClick={toPricing}>
-                See plans
-              </button>
-            </div>
             <ul className="assurances">
               <li>Free demo, no sign-up</li>
               {cheapest && (
@@ -270,11 +342,7 @@ export function Landing({
               Every plan includes every subject, screenshots and file uploads, the voice, and the
               worked solution to keep. They differ only in how many questions a month they cover.
             </p>
-            <div className="plans">
-              {PLANS.map((plan) => (
-                <PlanCard key={plan.id} plan={plan} bestValue={plan.id === bestValue} />
-              ))}
-            </div>
+            <PlanCards onChoose={onChoose} />
             <div className="own-key-offer">
               <div>
                 <h3>Already have an API key?</h3>
@@ -333,53 +401,11 @@ export function Landing({
             <span className="wordmark-mark" aria-hidden="true" />
             LemmeTeach
           </span>
-          <span className="dim small">Payments are handled by Lemon Squeezy.</span>
+          <span className="dim small">Payments are handled by Paddle, our merchant of record.</span>
         </div>
       </footer>
     </div>
   );
-}
-
-function PlanCard({ plan, bestValue }: { plan: Plan; bestValue: boolean }): JSX.Element {
-  const url = checkoutUrl(plan.id);
-  const centsEach = Math.round((plan.priceUsd / plan.lessons) * 100);
-  return (
-    <div className={`plan ${bestValue ? 'plan-best' : ''}`}>
-      <div className="row" style={{ justifyContent: 'space-between', alignSelf: 'stretch' }}>
-        <h3>{plan.name}</h3>
-        {bestValue && <span className="pill pill-accent">Lowest price per question</span>}
-      </div>
-      <p className="plan-price">
-        {formatUsd(plan.priceUsd)}
-        <span className="dim"> / month</span>
-      </p>
-      <p className="plan-lessons">About {plan.lessons} questions a month</p>
-      <p className="dim small">
-        Around {centsEach} cents a question. {plan.blurb}
-      </p>
-      {url ? (
-        <a className="btn btn-primary" href={url} rel="noopener noreferrer">
-          Choose {plan.name}
-        </a>
-      ) : (
-        <>
-          <button className="btn" disabled>
-            Choose {plan.name}
-          </button>
-          <span className="dim small">Checkout is not set up on this site yet.</span>
-        </>
-      )}
-    </div>
-  );
-}
-
-/** The plan whose lessons work out cheapest — computed, so the badge is true. */
-function bestPerLesson(): string | null {
-  let best: Plan | null = null;
-  for (const plan of PLANS) {
-    if (!best || plan.priceUsd / plan.lessons < best.priceUsd / best.lessons) best = plan;
-  }
-  return best?.id ?? null;
 }
 
 /* ------------------------------------------------------------------ *

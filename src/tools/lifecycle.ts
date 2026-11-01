@@ -9,6 +9,7 @@
 import { uid } from '../core/types';
 import { validateOps } from '../board/validate';
 import { BOARD_OPS_WIRE } from '../board/op-schema';
+import { explainOps, tidyOps } from '../board/tidy';
 import type { Tool, ToolOutcome } from './index';
 import type { ToolContext } from './context';
 import {
@@ -73,6 +74,16 @@ You are given the rejected operations and exactly what the validator objected to
     ...schema,
     properties: { ...schema.properties, ops: { ...BOARD_OPS_WIRE, description: schema.properties?.ops?.description } },
   }),
+  prepare: (input) => {
+    if (typeof input !== 'object' || input === null) return { input, notes: [] };
+    const { ops, fixes } = tidyOps((input as { ops?: unknown }).ops);
+    return { input: { ...input, ops }, notes: fixes };
+  },
+  explain: (input, paths) =>
+    explainOps(
+      (input as { ops?: unknown } | null)?.ops,
+      paths.filter((p) => p[0] === 'ops' && typeof p[1] === 'number').map((p) => p[1] as number),
+    ),
   agents: ['repairer'],
   parallelSafe: false,
   suspends: false,

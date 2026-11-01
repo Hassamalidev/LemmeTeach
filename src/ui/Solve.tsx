@@ -38,7 +38,13 @@ export function Solve({
   onSeePlans,
   onOwnKey,
   onOpenSettings,
+  onHome,
+  draft,
 }: {
+  /** Carried over from the home page. */
+  draft: { question: string; files: File[] } | null;
+  /** Back to the home page. */
+  onHome: () => void;
   /** Play back a question that has already been solved, at no cost. */
   onReplay: (record: SolutionRecord) => void;
   onOwnKey: () => void;
@@ -54,7 +60,9 @@ export function Solve({
   const ownKey = plan === null ? settings.ownKey : null;
   const demo = plan === null && ownKey === null;
   const [example, setExample] = useState(0);
-  const [question, setQuestion] = useState(() => (demo ? (DEMO_EXAMPLES[0]?.question ?? '') : ''));
+  const [question, setQuestion] = useState(() =>
+    demo ? (DEMO_EXAMPLES[0]?.question ?? '') : (draft?.question ?? ''),
+  );
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [problem, setProblem] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -68,7 +76,11 @@ export function Solve({
     void allLessons().then((l) => {
       setHistory(l);
       setRecent(l.slice(0, 5));
+      // Asked from the home page, and solved before: offer it before spending anything.
+      if (draft?.question) setSolvedBefore(findSolved(draft.question, l));
     });
+    // Runs once, for what was carried over.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const add = useCallback(
@@ -97,6 +109,14 @@ export function Solve({
     },
     [demo],
   );
+
+  const carried = useRef(false);
+  useEffect(() => {
+    if (draft?.files.length && !carried.current) {
+      carried.current = true;
+      void add(draft.files);
+    }
+  }, [draft, add]);
 
   // The pre-flight check (§18): do not start something that will be cut off.
   const left = !demo && credit ? credit.remainingUsd : null;
@@ -128,10 +148,10 @@ export function Solve({
     <div className="screen">
       <div className="centered solve">
         <div className="row" style={{ justifyContent: 'space-between', marginBottom: 20 }}>
-          <span className="wordmark">
+          <button className="wordmark wordmark-link" onClick={onHome} aria-label="LemmeTeach home page">
             <span className="wordmark-mark" aria-hidden="true" />
             LemmeTeach
-          </span>
+          </button>
           <button className="btn-quiet" onClick={onOpenSettings}>
             Settings
           </button>
@@ -293,7 +313,7 @@ export function Solve({
         {solvedBefore && (
           <div className="notice" role="status">
             <strong>You had this solved {relativeDay(solvedBefore.startedAt)}.</strong>{' '}
-            <span className="dim">Playing it back is free. Solving it again uses your credit.</span>
+            <span className="dim">Playing it back is free. Solving it again uses a question.</span>
             <div className="row" style={{ marginTop: 10 }}>
               <button className="btn btn-primary" onClick={() => onReplay(solvedBefore)}>
                 Replay it, free

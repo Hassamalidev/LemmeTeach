@@ -41,12 +41,13 @@ This file is the source of truth. Where it conflicts with a default habit, this 
 27. [Product, plans and pricing](#27-product-plans-and-pricing)
 28. [Billing backend](#28-billing-backend)
 29. [Landing page](#29-landing-page)
+30. [Growth: sharing and counts](#30-growth-sharing-and-counts)
 
 ---
 
 ## 1. What this is
 
-A visitor lands on the marketing page (§29), tries the demo or picks a plan (§27), pays through Lemon Squeezy, and pastes the license key they receive once. From then on:
+A visitor lands on the home page (§29) and types their question straight into it. To have a real question solved they pick a plan (§27), which they pay for through Paddle's checkout without leaving the page and which sets itself up on that device, or they paste their own API key (§5.8). The prepared demo is free for anyone. There are no free real questions: nothing a visitor does can spend the operator's money (§30). Every question works the same way:
 
 1. They **bring a question**: typed, pasted as a screenshot, or attached as a photo, PDF or text file. There is no subject to pick and no level to set.
 2. A **reader agent** reads the question and anything attached, restates it in full, works out the subject and level from the question itself, and plans the solution. If part of an upload cannot be read, or the question is ambiguous in a way that changes the answer, it asks one clarifying question and waits. Otherwise it asks nothing.
@@ -65,7 +66,7 @@ There are no quizzes, no checks for understanding, and no closing exam. The solv
 
 | Constraint | Meaning |
 |---|---|
-| **Minimal backend** | Two serverless functions, both billing-only (§28): one turns a license key into a spend-capped model key, one receives payment webhooks. No question, upload, prompt or solution ever passes through them. No database — Lemon Squeezy and OpenRouter are the system of record. |
+| **Minimal backend** | Serverless functions for billing (§28) and for growth (§30): usage counts and shared links. No question, upload, prompt or solution passes through them, except a solution the learner chose to share. No database of users: Paddle and OpenRouter are the system of record for money, and one small optional key-value store holds counts, rate limits and shared links. |
 | **Managed credit, or your own key** | A subscriber never sees a provider console: their plan funds a per-learner OpenRouter key whose spending cap equals their credit. Someone who already has a key from a supported provider can paste it instead and skip the subscription (§5.8). Either way the browser calls the provider directly. |
 | **The learner decides when they have understood** | After a question is answered the solution waits for the learner to say it made sense. The model may not decide that for them and may not quiz them to find out (§15). |
 | **Fixed margin** | Every plan is priced so that $2 per subscriber per month remains after payment fees, a hosting allowance, and the full cost of the credit (§27). The numbers live in one file. |
@@ -81,9 +82,9 @@ There are no quizzes, no checks for understanding, and no closing exam. The solv
 
 Do not build: quizzes, checks for understanding, an exam, a learner profile or mastery record, spaced review, a materials library with retrieval, a subject or level picker, a reduced "scripted" mode. All of these existed in the earlier teach-a-topic product and were deliberately removed; do not bring them back without being asked.
 
-Do not build: user accounts or passwords (the license key is the credential), a user database, a model proxy (the browser calls OpenRouter directly), a telemetry pipeline, cloud sync, a general-purpose chatbot, a provider or model picker (an own key's provider is read off the key, and its model is chosen for it). Do not add a client-side router. Do not add a state management library.
+Do not build: user accounts or passwords (the access code is the credential), a user database, a model proxy (the browser calls OpenRouter directly), cloud sync, a general-purpose chatbot, a provider or model picker (an own key's provider is read off the key, and its model is chosen for it). Do not add a client-side router. Do not add a state management library.
 
-The backend is allowed to do exactly two things: exchange a license for a key, and react to payment events. If you find yourself about to route model traffic, store learner data, or add a database on the server, stop and raise it rather than building it.
+The backend is allowed to do exactly what §28 and §30 list. If you find yourself about to route model traffic, store anything a learner did not choose to share, or add a user database, stop and raise it rather than building it. The usage counts are a fixed list of words and a distinct-count: never text, never an address (§30).
 
 ---
 
@@ -163,7 +164,7 @@ Every transition is written to the session trace (§22).
 - **Zod** — runtime validation of every tool input. Non-negotiable: the model *will* send malformed arguments, and every one of them must be caught at the tool bus rather than deep inside the renderer.
 - **Web Speech API** — voice. Built in, free, no key, no network.
 - **Vercel Functions** — Node runtime, Web-standard `Request`/`Response` handlers in `api/`. Billing only (§28).
-- **Lemon Squeezy** — checkout, subscriptions, tax as merchant of record, license keys.
+- **Paddle** — checkout (Paddle.js, an overlay on our own page), subscriptions, and tax as merchant of record. Replaced Lemon Squeezy: its fee is lower and it is the provider chosen for the business. Loaded only when someone pays.
 - **OpenRouter** — the model gateway, and its management API for per-learner capped keys.
 
 No state library, no router, no component kit, no animation library, no server framework, no database, no PDF library (PDFs go to the model as they are). Anything else needs a justification in the commit message.
@@ -269,11 +270,11 @@ Replays a prepared walkthrough from `src/fixtures/lessons/` — or a recorded ta
 
 ### 5.7 Key handling
 
-Two secrets live in the learner's browser: the **license key** (their proof of purchase) and the **model key** (the capped OpenRouter key issued for it).
+Two secrets live in the learner's browser: the **access code** (their proof of purchase: the id of a Paddle transaction on their subscription, `txn_…`) and the **model key** (the capped OpenRouter key issued for it).
 
 - Both in `localStorage` — `chalk.license` and `chalk.key.openrouter`. A learner's own key (§5.8) lives beside them as `chalk.key.{provider}` and is held to the same rules.
 - Never logged, never placed in a URL, never included in an exception message, a trace export, or a saved solution. Ship a unit test asserting neither string appears in any serialized artifact.
-- The model key is sent only to `openrouter.ai`. The license key is sent only to our own `/api/activate`.
+- The model key is sent only to `openrouter.ai`. The access code is sent only to our own `/api/activate`.
 - Settings has **Sign out of this device**: clears both and returns to the landing page. The subscription itself is untouched.
 - The model key is worth at most the learner's remaining credit. That bound is what makes holding it in the browser acceptable; never issue an uncapped key.
 - The OpenRouter **management key** and the webhook signing secret exist only as server environment variables. They must never be imported by anything under `src/`.
@@ -292,7 +293,7 @@ Someone who already has an API key can use LemmeTeach without subscribing (`src/
 - **Quirks are per service, not guessed.** `AdapterQuirks` records where a service differs from OpenAI: Mistral rejects `stream_options`, calls a forced tool choice `any`, and will not take a user message straight after a tool result (the adapter slips a one-word assistant turn in between); Cohere rejects `stream_options`. A new service with a new quirk gets a new field, with a test.
 - **Stored** in the key vault under its adapter's id, with `settings.ownKey` recording the service, its label, its address, its quirks and the models chosen. **Remove my key from this device** in Settings clears it.
 - **Our servers are not involved.** No activation, no webhook, no credit cap, no plan line. The meter shows an estimate from the static price table where the model is in it, and nothing otherwise.
-- **A plan wins.** If a license is active on the device, the plan is used and the own key is ignored.
+- **A plan wins.** If a plan is active on the device, the plan is used and the own key is ignored.
 - **Attachments** are sent in each provider's own shape (§6). Whether a given compatible service can read an image depends on the model chosen there.
 - **The CSP must allow every service** (`public/csp.js`). `OWN_KEY_ORIGINS` lists them and a test holds the two together.
 
@@ -430,7 +431,7 @@ The main loop. Prompt requirements:
 - **Given and asked first**, then a picture: forces as vectors, a process as a flow, a structure as a tree, a function as a plot. A picture before any algebra.
 - **One move per step.** Say why, make the move, say what it gave. Do not skip a line the learner would have to stop and work out; do not pad with lines they would not.
 - **Name the method** the first time it is used, in one sentence, so it transfers to the next question.
-- **`compute` for every number** on the board. A wrong figure in a worked solution is worse than none.
+- **Every number computed, never guessed.** The solver writes `{{expression}}` where a number goes, in `say` or on the board, and `teach_step` works it out with mathjs as the step is drawn (`src/tools/compute.ts`, `fillNumbers`); the result lists the values. `compute` is for a number needed before deciding what to write. A wrong figure in a worked solution is worse than none.
 - **Mark the trap** where a common mistake sits next to the correct move.
 - **Finish properly:** the answer with units in a `key` box, a sanity check (size, a limiting case, or substituting back), the one idea worth carrying away, `save_note` with the worked solution, then `end_lesson`.
 - **Do not quiz.** Never put a question to the learner in narration; one they cannot answer is noise.
@@ -524,7 +525,7 @@ One narrated step with its board operations. Called once per turn.
 }
 ```
 
-Returns `{ ok, opsRendered, page, boardFull }`. When `boardFull` is true, the next step must set `clear: true` — say so in the result string, because models otherwise keep writing off the bottom of the page.
+Numbers are written as `{{expression}}` (optionally `{{expression | 3}}` for significant figures) and computed as the step is drawn; one that will not compute rejects the step with the reason. Returns `{ ok, opsRendered, page, boardFull, numbers }`. When `boardFull` is true, the next step must set `clear: true` — say so in the result string, because models otherwise keep writing off the bottom of the page.
 
 ### 9.4 `run_code`
 
@@ -688,7 +689,7 @@ What is kept, on the learner's own device only (§20):
 - **Solved questions** — the last 25, each with its title, the question as typed, the board pages, the transcript, and the saved notes. Shown on the Solve screen as **Recently solved**.
 - **Figures** drawn by `run_code` for those solutions.
 - **Settings** — board theme, voice, speed, tutor tier, toggles, budget.
-- **The license and the model key** (§5.7).
+- **The access code and the model key** (§5.7).
 
 Attachments are not kept. They exist in memory for the one request that sends them to the reader.
 
@@ -743,14 +744,15 @@ Speech engines sometimes accept an utterance and never finish it: no audio devic
 
 ## 15. Screens and interaction
 
-No router. One page, a handful of states in React state (`src/App.tsx`). The only thing read from the URL is the query flag `?activate`, which Lemon Squeezy's post-purchase redirect uses to open the activation screen.
+No router. One page, a handful of states in React state (`src/App.tsx`). Two things are read from the URL: `?activate`, which opens the activation screen, and `?_ptxn=`, which a Paddle payment link adds; Paddle.js opens that checkout by itself.
 
-1. **Landing** — the marketing page (§29). Shown to anyone without a license on this device.
-2. **Activate** — one field for the license key, with one line saying where it is stored. Success goes straight to Solve.
+1. **Landing** — the home page and marketing page (§29), with the question box on it. Every visit opens here, including for a subscriber or someone with their own key. The exceptions are arriving from checkout (`?activate`), which opens on Activate, and a shared link (`?s=`), which plays that solution. The wordmark on the Solve screen leads back here.
+2. **Activate** — after paying, this sets the plan up by itself (waiting out the few seconds Paddle takes to attach the subscription) and then shows the access code once, with **Copy**, so it can be kept for other devices. On another device, it is one field for the code, with one line saying where it is stored. Settings also shows the code.
 2a. **Own key** — one field for an API key (§5.8), with where it is stored, where it goes, and who gets paid. Reachable from the landing page, the activation screen and the demo.
 3. **Solve** — the main screen. One box: "What do you want solved?", the attachment row, **Solve it**, and the voice picker. Above it, the plan line: plan name and roughly how many questions are left this month. Below it, **Recently solved**, each with **Replay, free**. A question that has been solved before is offered as a free replay before it is sent again. No subject picker, no level selector. `Ctrl+Enter` solves.
 4. **Board** — the solution. The board is the screen, edge to edge, and scrolls. Above it is one thin line: what is happening, the title, and **Plan**, **Transcript**, **Details** and **Stop and leave**. The plan with its stages and the budget meter open as a side panel from **Plan** and are closed by default. Under the board is one box to ask from (`src/ui/Composer.tsx`): a text field with a microphone and a send button, and the playback controls inside it — pause, previous/next step, replay step, mute, speed and voice. When the last step has been explained, the box offers **See the summary** above it; it does not jump to the summary by itself.
-5. **Review** — the summary, **Where to go next**, the worked solution with **Copy as Markdown** and **Download**, **Solve another question**, and **Export trace**.
+5. **Review** — the summary, **Share this solution**, **Where to go next**, the worked solution with **Copy as Markdown** and **Download**, **Solve another question**, and **Export trace**.
+6. **Start** — where a visitor with no plan and no key lands when they ask something: the plans, their own key, the demo, and an access code. Their question is kept and waits in the box afterwards (§30).
 
 ### The demo
 
@@ -843,6 +845,7 @@ Detect no-progress conditions and act on them rather than burning the budget:
 
 - **Repeated tool call** — same tool, same arguments hash, three turns running. Inject a user message naming the repetition and asking for a different approach.
 - **No tool call** — the model returns only prose. Nudge once, then re-send with `toolChoice: 'required'`.
+- **Board slips** — tidied before checking where the intent is unambiguous, and a rejection quotes the operation's correct shape (`src/board/tidy.ts`).
 - **Board validation failure** — two failures on the same step escalates to the repairer (§8.4); if that fails, drop the ops and render `say` as plain text. The learner still gets the explanation.
 
 ### 17.4 Degradation ladder
@@ -879,7 +882,8 @@ Every turn re-sends the system prompt, the tool definitions and the conversation
 - **Send only what the model reads.** `minifySchema` strips from every tool schema the keys that only a validator needs: length, size and numeric limits, patterns, `additionalProperties`, a `const` that repeats an `enum`. Limits also stay off the wire because some services check a call against the schema themselves and throw the whole reply away over a string a few characters too long; and a tuple is sent as a plain array, because the stricter services refuse the older tuple form. Tool descriptions are a few sentences, not an essay; the worked example is one line of JSON, not indented.
 - **A budget, held by a test.** The solver's fixed cost per turn — system prompt plus tool definitions — was about 6,050 tokens and is now about 3,750. A test fails if it passes 4,200, because this number creeps.
 - **Few tools.** The solver is offered five tools (six with Wikipedia on) and the reader two. Every definition is paid for on every turn.
-- **Few turns.** One `compute` call for all the numbers a step needs. `save_note` and `end_lesson` in the same turn.
+- **Few turns.** Numbers go into the step as `{{expression}}` rather than costing a `compute` turn first: in a live run, three of seventeen turns were only fetching numbers. `save_note` and `end_lesson` in the same turn.
+- **No turn lost to a slip.** A rejected call costs a whole turn, and a model that cannot see its mistake repeats it: one live run spent five turns writing `{"derive":[…]}` instead of `{"op":"derive","lines":[…]}`. The unambiguous slips — that one, a tone the board does not have, a number sent as a string — are put right at the bus before checking (`src/board/tidy.ts`), and the result tells the model how to write it. A call that still fails quotes the right shape back.
 - **A short conversation.** Compaction starts at about 8,000 tokens of conversation and keeps the opening and the last four turns; everything older becomes a short deterministic summary of what is on the board. On a service with no prompt cache this is the difference between a long question costing linearly and quadratically.
 - **Prompt caching.** Through OpenRouter every request asks for the prefix to be cached, so it is read back at a tenth of the price. Anything that changes the prefix mid-solution — reordering tools, editing the system prompt per turn — throws that away, so do not.
 - **Cheapest model that solves well.** The standard tier runs every agent on a small, fast model (`src/providers/managed.ts`). Re-check the gateway's price list when it changes.
@@ -904,17 +908,17 @@ What was looked at and not done: semantic caching with embeddings (an exact matc
 
 ## 19. Security and privacy
 
-- Questions, uploads and solutions go from the browser straight to OpenRouter. Our functions never see any of them. Say so once, plainly, on the landing page and in Settings.
-- CSP `connect-src` allowlists our own origin, the services a key can belong to (§5.8), the Wikipedia API, and the Pyodide CDN. Nothing else.
+- Questions, uploads and solutions go from the browser straight to OpenRouter. Our functions never see any of them, unless the learner presses Share, which stores that solution, without its uploads, until they stop sharing or for six months. Say so once, plainly, on the landing page and where the button is.
+- CSP `connect-src` allowlists our own origin, the services a key can belong to (§5.8), the Wikipedia API, the Pyodide CDN, and Paddle. Nothing else. Paddle also needs `script-src`, `style-src`, `font-src`, `frame-src` and `img-src`: a real browser found its stylesheet blocked, and a test now holds all five.
 - A learner's own key is sent only to the provider that issued it, in a header and never in a URL, and never to our servers.
 - The sandbox is a null-origin iframe with network globals removed inside the worker (§11).
-- No analytics, no error reporting service, no fonts loaded from a third party — self-host the two typefaces.
+- No third-party analytics, no error reporting service, no fonts loaded from a third party — self-host the two typefaces. Our own usage counts hold no text and no address, and are not sent from a browser that asks not to be tracked (§30).
 - Attachments are read in the browser, held in memory for one request, and never written to storage, the trace, or a saved solution.
-- Trace exports are scrubbed: no license key, no model key.
+- Trace exports are scrubbed: no access code, no model key.
 - `rel="noopener noreferrer"` on every external link.
 - Webhooks are verified by HMAC signature over the raw body, compared in constant time, before anything is parsed (§28).
-- `/api/activate` accepts only licenses from our own store and known plan variants; a valid license from someone else's Lemon Squeezy store must be rejected.
-- We hold payment data nowhere. Lemon Squeezy is the merchant of record and owns cards, invoices, tax, and the customer's email.
+- `/api/activate` accepts only a well-formed transaction id, looks it up with our own Paddle API key (so it can only ever find our transactions), and grants only for a paid transaction on a subscription to one of our prices.
+- We hold payment data nowhere. Paddle is the merchant of record and owns cards, invoices, tax, and the customer's email.
 
 ---
 
@@ -924,7 +928,7 @@ What was looked at and not done: semantic caching with embeddings (an exact matc
 
 | Key | Contents |
 |---|---|
-| `chalk.license` | license key, plan id, activation time |
+| `chalk.license` | access code (field still named `licenseKey`), plan id, activation time |
 | `chalk.key.openrouter` | the provisioned, spend-capped model key |
 | `chalk.key.{provider}` | a learner's own API key, when they use one (§5.8) |
 | `chalk.settings` | theme, voice, speed, tutor tier, toggles, budget, and whose own key is in use |
@@ -959,10 +963,10 @@ lemmeteach/
   shared/
     plans.ts                       # the one pricing table (§27), used by client and api
   api/                             # Vercel functions — billing only (§28)
-    activate.ts                    # license key → capped model key
-    webhook.ts                     # Lemon Squeezy events → grant / disable
+    activate.ts                    # access code → capped model key
+    webhook.ts                     # Paddle events → grant / disable
     _lib/
-      lemon.ts  openrouter.ts  grants.ts  events.ts  http.ts
+      paddle.ts  openrouter.ts  grants.ts  events.ts  http.ts
   src/
     main.tsx
     App.tsx                        # screen state, no router
@@ -1002,8 +1006,9 @@ lemmeteach/
       attachments.ts               # reading, shrinking and limiting uploads (§13)
       examples.ts                  # the demo's five questions
     billing/
+      paddle.ts                    # Paddle.js: load it, open checkout, hand back the access code
       license.ts                   # activate, reactivate, sign out
-      links.ts                     # checkout and billing portal URLs
+      links.ts                     # the customer portal link
     voice/
       speech.ts                    # narration, voice ranking, watchdog (§14)
       recognition.ts
@@ -1037,11 +1042,15 @@ The suite runs with no API key and no network: `npm test`.
 
 ### Unit
 
-Provider normalization in both directions against captured raw responses, including an attachment as content parts. Zod schemas accepting good input and rejecting each documented bad case. Board validation, every rule in §10.3. The phase machine, including that every phase can finish. The tool catalogue against the access matrix in §8.1. Voice ranking. Free replay: the same board and narration with no request, and a question recognised when it is asked again. What is sent each turn: the slim schemas, and a ceiling on the solver's fixed cost per turn. A learner's own key: every service's key shape recognised, checked with its own service and nobody else, never in a URL, the quirks each service needs actually sent, the CSP allowing every service, and attachments in each provider's shape. The pricing table against the margin rule (§27). The billing rules and both functions against in-memory stand-ins for Lemon Squeezy and OpenRouter (§28). The layering rule: no provider name in a conditional above the adapter layer.
+Provider normalization in both directions against captured raw responses, including an attachment as content parts. Zod schemas accepting good input and rejecting each documented bad case. Board validation, every rule in §10.3. The phase machine, including that every phase can finish. The tool catalogue against the access matrix in §8.1. Voice ranking. Free replay: the same board and narration with no request, and a question recognised when it is asked again. What is sent each turn: the slim schemas, and a ceiling on the solver's fixed cost per turn. A learner's own key: every service's key shape recognised, checked with its own service and nobody else, never in a URL, the quirks each service needs actually sent, the CSP allowing every service, and attachments in each provider's shape. The pricing table against the margin rule (§27). The billing rules and both functions against in-memory stand-ins for Paddle and OpenRouter (§28). Counts and shared links against an in-memory store, including every limit and the store being down (§30). The layering rule: no provider name in a conditional above the adapter layer.
 
 ### Integration, no network
 
 The mock adapter replays the prepared walkthroughs through the real session, the real tool bus and the real board model (`src/orchestrator/session.test.ts`). Covered: a question solved end to end; every bundled walkthrough; an attachment reaching the reader once and nobody else; a clarifying question that waits for a real answer; a session stopped mid-question that does not invent one; a raised hand answered in one step and then held until the learner confirms, both ways; a second question while waiting; a question after the solution has finished; an abort; pacing, including that a raised hand and an abort release it; no sandbox; a sandbox timeout; Wikipedia on and off; budget exhaustion; the demo making no network request.
+
+### The whole visitor path
+
+`src/growth/flow.test.tsx` drives the real app with only the network faked: a visitor with no plan and no key never causing a model request; their question waiting for them after they bring a key; a subscriber solving from the home page; running out of credit; a shared link that has gone, is malformed, is tampered with to inject markup, or holds nothing valid.
 
 ### Rendering and accessibility
 
@@ -1066,10 +1075,10 @@ Built and tested against stand-ins:
 
 Not yet done, in rough order:
 
-1. **A real end-to-end run.** Lemon Squeezy store and products, an OpenRouter account with auto top-up, Vercel environment variables, and one purchase in test mode: pay, activate, solve a typed question, solve a screenshot, cancel.
+1. **A real end-to-end run.** Paddle sandbox account, product and three prices, an OpenRouter account with auto top-up, Vercel environment variables, and one purchase in test mode: pay, activate, solve a typed question, solve a screenshot, cancel.
 2. **Measure and tune.** The real cost of a solved question, and the quality of solutions on the standard model. Correct `TYPICAL_LESSON_USD` and the question counts; treat a weak board as a prompt bug before moving up a model.
 3. **Rewrite the five demo walkthroughs** as worked solutions. They were written as topic lessons and still read that way.
-4. **Legal pages** — terms, privacy, refunds — and the footer links to them.
+4. **Legal pages** — terms, privacy, refunds — and the footer links to them. Must exist before launch: the site stores shared solutions (§30).
 5. **Replaying across devices.** A solved question can be replayed free on the device it was solved on; there is no sync.
 6. **A runner for the golden set** (§8.5), so it is one command rather than twelve by hand.
 7. **Own keys on the newer OpenAI models**, which need `max_completion_tokens` and no temperature.
@@ -1087,18 +1096,21 @@ Server environment variables (Vercel dashboard, never in the repo, never prefixe
 | Variable | What it is |
 |---|---|
 | `OPENROUTER_MANAGEMENT_KEY` | Management key that creates and caps learner keys |
-| `LEMONSQUEEZY_WEBHOOK_SECRET` | Signing secret for the webhook |
-| `LEMONSQUEEZY_STORE_ID` | Our store id; licenses from any other store are rejected |
-| `LEMON_VARIANT_STARTER` / `_REGULAR` / `_INTENSIVE` | Variant id of each plan |
+| `PADDLE_ENV` | `sandbox` or `production` |
+| `PADDLE_API_KEY` | Paddle API key, read access to transactions and subscriptions (`pdl_sdbx_…` in the sandbox) |
+| `PADDLE_WEBHOOK_SECRET` | The webhook destination's secret (`pdl_ntfset_…`) |
+| `PADDLE_PRICE_STARTER` / `_REGULAR` / `_INTENSIVE` | Price id of each plan (`pri_…`); sandbox and live ids differ |
 
-Public build-time variables (safe to expose, they are just links):
+Public build-time variables (safe to expose):
 
 | Variable | What it is |
 |---|---|
-| `VITE_CHECKOUT_STARTER` / `_REGULAR` / `_INTENSIVE` | Lemon Squeezy checkout URL per plan |
-| `VITE_BILLING_PORTAL_URL` | Where **Manage subscription** goes |
+| `VITE_PADDLE_CLIENT_TOKEN` | Paddle client-side token (`test_…` / `live_…`); it can only open checkouts |
+| `VITE_PADDLE_ENV` | `sandbox` or `production`, matching the token |
+| `VITE_PADDLE_PRICE_STARTER` / `_REGULAR` / `_INTENSIVE` | The same price ids, for opening checkout |
+| `VITE_BILLING_PORTAL_URL` | Optional: the seller's Paddle customer portal, where **Manage subscription** goes. Without it, the learner is pointed to the link in Paddle's receipt email |
 
-**Lemon Squeezy setup** — one subscription product with three monthly variants, license keys enabled on each, the purchase redirect pointed at `https://<site>/?activate`, and a webhook to `https://<site>/api/webhook` subscribed to `subscription_created`, `subscription_updated`, `subscription_expired`, and `order_refunded`.
+**Paddle setup** — one product with three monthly prices; an API key and a client-side token (Developer tools → Authentication); a webhook destination to `https://<site>/api/webhook` subscribed to every `subscription.*` event plus `adjustment.created` and `adjustment.updated`; and the default payment link (Checkout → Checkout settings) set to `https://<site>/`, which Paddle requires before any checkout opens. In the sandbox, `http://localhost:5173/` is allowed. Sandbox test card: `4242 4242 4242 4242`, any future date, any CVC.
 
 **OpenRouter setup** — one account, auto top-up on so the balance never runs dry, a management key.
 
@@ -1115,7 +1127,7 @@ Public build-time variables (safe to expose, they are just links):
 **Product**
 
 - [ ] A visitor understands what LemmeTeach is and what it costs without scrolling past the second screen, and can try the demo in one click.
-- [ ] Paying, receiving a license key, pasting it, and solving a first question takes under three minutes and needs no instructions.
+- [ ] Paying and solving a first question takes under three minutes and needs no instructions.
 - [ ] A typed question, a pasted screenshot and an attached PDF are each solved correctly, step by step, with the answer stated and checked.
 - [ ] Every step is spoken in order; nothing is skipped; the summary appears only after the last step.
 - [ ] Stopping it interrupts within 300 ms. The answer is spoken next, the learner is asked whether it made sense, and the solution resumes from where it stopped only when they say yes.
@@ -1134,7 +1146,7 @@ Public build-time variables (safe to expose, they are just links):
 - [ ] Attachments reach the reader once and no other request — asserted by test.
 - [ ] Every error class in §17.1 has a test and a user-visible message written for a human.
 - [ ] Aborting or closing the tab leaves no speech playing, no worker running, no pacing hold, and no lost work.
-- [ ] Neither the license key, the model key, nor a learner's own key appears in any trace export, saved solution, log line, or URL — asserted by test.
+- [ ] Neither the access code, the model key, nor a learner's own key appears in any trace export, saved solution, log line, or URL — asserted by test.
 - [ ] No key is ever issued without a cap, and no renewal can grant credit twice — asserted by test.
 - [ ] A webhook with a bad signature changes nothing.
 - [ ] A cancelled, expired or refunded subscription ends with a disabled key.
@@ -1152,11 +1164,11 @@ These were chosen to satisfy the constraints in §2. Say so if any should change
 2. **Web Speech API for voice**, with the best installed voice chosen automatically. Free and instant, but quality varies by device. A paid cloud voice or a neural voice downloaded into the browser is the upgrade path, and either changes cost or load time.
 3. **The reader, not the solver, sees attachments.** Cheaper by a wide margin; the cost is that a figure reaches the solver as a description rather than a picture. If solutions suffer on diagram-heavy questions, the fix is to pass images to the solver's first turn as well.
 4. **Eight subjects, one of them a catch-all** (§10.4), chosen by the reader. The honest limit is what the board can draw: it has no maps, musical notation or pictures.
-5. **License key instead of accounts.** No login, no user database. History stays on one device, and activating on a second device signs the first one out until it reconnects.
+5. **An access code instead of accounts.** No login, no user database. The code is the Paddle transaction id, shown once after paying and kept in Settings; a learner who loses it on every device needs the operator to look it up in Paddle. History stays on one device, and activating on a second device signs the first one out until it reconnects.
 6. **English UI first**; narration follows the language of the question. Right-to-left layout is not handled.
 7. **Wikipedia as the only external knowledge source**, off by default.
 8. **Pyodide from a CDN** by default, with a vendoring script for restricted networks.
-9. **Lemon Squeezy as merchant of record.** Its fees are the largest variable in the margin.
+9. **Paddle as merchant of record.** Its fee (5% + $0.50) is the largest variable in the margin.
 10. **OpenRouter as the only model gateway**, because it can issue per-learner capped keys callable from a browser.
 11. **No database.** OpenRouter key names hold the billing state (§28). Fine for hundreds of subscribers; move to a key-value store before thousands.
 12. **Unused credit does not roll over.** Monthly billing only; annual plans, trials, coupons and top-up packs are unspecified.
@@ -1180,9 +1192,9 @@ LemmeTeach sells one thing: questions solved. A plan is a monthly amount of AI c
 
 | Plan | Price / month | AI credit | Roughly |
 |---|---|---|---|
-| Starter | $8 | $4.25 | 280 questions |
-| Regular | $12 | $7.75 | 500 questions |
-| Intensive | $20 | $14.75 | 950 questions |
+| Starter | $8 | $4.50 | 300 questions |
+| Regular | $12 | $8.00 | 530 questions |
+| Intensive | $20 | $15.00 | 1,000 questions |
 
 The figures assume the standard model tier and 1.5 cents per solved question (`TYPICAL_LESSON_USD`), rounded down. That is worked out from measured prompt sizes — about 80k input and 6k output tokens over sixteen turns, which is 1.1 cents with no prompt caching and about half a cent with it — and not yet from a live key (§26.14). Replays are free and are not counted. In `shared/plans.ts` the field is still called `lessons`. They are always shown with "about", never as a promise.
 
@@ -1191,8 +1203,8 @@ The figures assume the standard model tier and 1.5 cents per solved question (`T
 For every plan, with all fees at their worst case:
 
 ```
-kept        = (price × (1 − 0.07) − 0.50) × (1 − 0.01)     // Lemon Squeezy: 5% + 0.5% subscription
-                                                            //   + 1.5% international, + $0.50, then 1% payout
+kept        = (price × (1 − 0.05) − 0.50) × (1 − 0.01)     // Paddle: 5% + $0.50, all in;
+                                                            //   then 1% allowed for the payout
 credit cost = credit × 1.055                                // OpenRouter's fee on buying credit
 profit      = kept − credit cost − $0.25 hosting allowance   ≥  $2.00
 ```
@@ -1216,14 +1228,14 @@ The demo: five prepared questions, solved through the real board, voice and cont
 
 ## 28. Billing backend
 
-Two functions, no database. State lives in the two services that already have to be right about it: Lemon Squeezy knows who is paying, OpenRouter knows what each key may spend.
+Two functions, no database. State lives in the two services that already have to be right about it: Paddle knows who is paying, OpenRouter knows what each key may spend.
 
 ```
- checkout ──► Lemon Squeezy ──webhook──► /api/webhook ──► OpenRouter management API
-                   │                                         (create · cap · disable)
-                   └─ license key ─► learner ─► /api/activate ──► capped key ─► browser
-                                                                                   │
-                                                           questions ─────────────┴──► OpenRouter
+ Paddle.js checkout ──► Paddle ──webhook──► /api/webhook ──► OpenRouter management API
+        │ (overlay)        ▲                                   (create · cap · disable)
+        └─ txn_… ─► browser ─► /api/activate ──► Paddle API (read) ──► capped key ─► browser
+                                                                                     │
+                                                             questions ──────────────┴──► OpenRouter
 ```
 
 ### 28.1 The key record
@@ -1231,71 +1243,75 @@ Two functions, no database. State lives in the two services that already have to
 Each subscription owns at most one OpenRouter key, and the key's **name** is the record:
 
 ```
-lemmeteach:o<orderId>:p<planId>:r<periodMarker>
+lemmeteach:s<subscriptionId>:p<planId>:r<periodStart>[:refunded]
 ```
 
-`orderId` ties it to the Lemon Squeezy order (present on both the license and the subscription). `planId` is what was last granted. `periodMarker` is the subscription's `renews_at` at the time of the last grant, or `init` when the key was created by activation before any webhook arrived.
+`subscriptionId` is Paddle's (`sub_…`). `planId` is what was last granted. `periodStart` is the epoch seconds of the start of the billing period last granted (`current_billing_period.starts_at`). `:refunded` marks a period whose payment was refunded or charged back, so nothing switches the key back on until a new period is paid for.
 
 Remaining credit is always `limit − usage`, both kept by OpenRouter.
 
 ### 28.2 `POST /api/activate`
 
-Body `{ licenseKey }`. Steps:
+Body `{ code }`: a Paddle transaction id, `txn_…`. The browser gets it from Paddle.js the moment a checkout is paid (`checkout.completed`); on another device the learner pastes it. Steps:
 
-1. Validate the license with Lemon Squeezy's license API. Reject unless it is valid, its store is ours, its variant maps to a plan, and its status is not `expired` or `disabled`. (`inactive` only means no device instance was registered, which we never do.)
-2. Find the subscription's key by order id.
-3. **If one exists** — the raw key cannot be read back, so rotate: note `remaining = limit − usage`, delete it, create a new key with `limit = remaining` and the same name. A disabled key is not rotated; the answer is "subscription ended".
-4. **If none exists** (the webhook has not arrived yet) — create one with `limit = plan credit` and period marker `init`.
-5. Return `{ apiKey, plan, creditUsd }`.
+1. Refuse anything that is not shaped like a transaction id, without asking Paddle.
+2. Read the transaction with our API key. Unknown → `invalid_code`. Not `paid` or `completed` → `not_paid`. Paid but no subscription attached yet → `pending` (409); the browser asks again for up to 45 seconds after checkout.
+3. Read the subscription. Its first item's price must be one of ours, or `unknown_plan`.
+4. Find the subscription's key by name and run **the same grant rules the webhook runs** (§28.3) against what Paddle says now. A missed or late webhook is caught up here, and the rules are idempotent, so this never grants twice.
+5. If the rules created the key, return it. Otherwise, if the key is disabled, answer "subscription ended". Otherwise rotate: the raw key cannot be read back, so note `remaining = limit − usage`, delete it, and create a new key with `limit = remaining` and the same name.
+6. Return `{ apiKey, plan, creditUsd }`.
 
-Rotation is why a second device signs the first one out, and why a shared license is self-limiting: there is only ever one live key and one pot of credit.
+Rotation is why a second device signs the first one out, and why a shared code is self-limiting: there is only ever one live key and one pot of credit.
 
 ### 28.3 `POST /api/webhook`
 
-Verify `X-Signature` (HMAC-SHA256 of the raw body, hex, constant-time compare) before parsing. Then:
+Verify `Paddle-Signature` (`ts=…;h1=…`, an HMAC-SHA256 of `ts:rawBody`, constant-time compare, any `h1` during secret rotation, a timestamp within five minutes) before parsing. Then every `subscription.*` event is read as a fresh look at the subscription, and an approved full refund or a chargeback (`adjustment.*`) as a refund:
 
-| Event | Action |
+| Situation | Action |
 |---|---|
-| `subscription_created` | Create the key with `limit = plan credit`, marker = `renews_at`. If activation got there first, only set the marker. |
-| `subscription_updated`, status `active`, `renews_at` later than the marker | A new paid period: `limit = usage + plan credit`, update the marker. Unused credit is dropped, not carried. |
-| `subscription_updated`, marker is `init` | Record the marker. No grant — activation already granted this period. |
-| `subscription_updated`, plan changed to a bigger one mid-period | Raise the limit by the difference in credit. A downgrade takes effect at the next renewal. |
-| `subscription_updated`, status `expired` or `unpaid`; `subscription_expired`; `order_refunded` | Disable the key. |
-| `subscription_updated`, status `active` on a disabled key | Re-enable it. |
+| Status `active` or `trialing`, no key | Create it with `limit = plan credit`, marker = period start. |
+| Paying, period start later than the marker | A new paid period: `limit = usage + plan credit`, update the marker, re-enable, clear a refund. Unused credit is dropped, not carried. |
+| Paying, same period, plan changed to a bigger one | Raise the limit by the difference in credit. A downgrade takes effect at the next renewal. |
+| Paying, same period, key disabled and not refunded | Re-enable it. |
+| Status `past_due` | Nothing: what was paid for still works, and nothing new is granted until the payment succeeds. |
+| Status `canceled` or `paused` | Disable the key. A scheduled cancellation stays `active` until the period ends, so the learner keeps what they paid for. |
+| Refund or chargeback | Disable the key and mark the period refunded. |
 | anything else | 200 and ignore. |
 
-Every rule is idempotent: Lemon Squeezy retries webhooks, and a retry must never grant twice. The rules are a pure function in `api/_lib/grants.ts` from (event, current key) to an action, so they are tested without a network.
-
-A `cancelled` subscription stays enabled until it expires — the learner has paid for the period.
+Every rule is idempotent: Paddle retries webhooks and activation reruns the rules, and neither may ever grant twice. The rules are a pure function in `api/_lib/grants.ts` from (event, subscription, current key) to an action, so they are tested without a network.
 
 ### 28.4 Failure handling
 
-- OpenRouter unreachable during a webhook → return 500 so Lemon Squeezy retries.
-- OpenRouter unreachable during activation → tell the learner payment is fine and to try again in a minute.
-- Unknown variant → 200 to the webhook (not ours to retry), a clear error to activation.
-- Errors returned to the browser never include the management key, the upstream response body, or another customer's data.
+- OpenRouter or Paddle unreachable during a webhook → return 500 so Paddle retries.
+- Unreachable during activation → tell the learner payment is fine and to try again in a minute.
+- A price that is not ours → 200 to the webhook (not ours to retry), a clear error to activation.
+- Errors returned to the browser never include the management key, the Paddle key, the upstream response body, or another customer's data.
 
 ### 28.5 What the backend must never do
 
-Proxy model traffic. Store or log license keys, model keys, or emails. Issue a key without a limit. Trust an unsigned webhook. Trust the client about which plan it is on.
+Proxy model traffic. Store or log access codes, model keys, or emails. Issue a key without a limit. Trust an unsigned webhook. Trust the client about which plan it is on. Write anything to Paddle.
+
+### 28.6 Not used: object storage
+
+Cloudflare R2 (or any bucket) has no job here. Uploads are read in the browser and sent once, inside the request to the model (§13), and never stored. Rate limits need atomic counters, which a bucket does not have, so §30 uses a key-value store, and shared solutions are small enough to live there too.
 
 ---
 
 ## 29. Landing page
 
-One scrolling page, rendered by the same app (`src/ui/Landing.tsx`), shown to anyone without a license on this device. It follows §16: the board is the hero, copy is plain, motion is reserved for the board writing itself.
+One scrolling page, rendered by the same app (`src/ui/Landing.tsx`), and the first thing every visit shows. It follows §16: the board is the hero, copy is plain, motion is reserved for the board writing itself.
 
 Sections, in order:
 
-1. **Header** — sticky. Wordmark, **Use my own API key**, **I have a license key**, **See plans**.
-2. **Hero** — "Stuck on a question? Watch it solved step by step." One paragraph on how: type it, paste a screenshot or attach the file; worked through on a board and explained aloud; stop it whenever you want. Primary button **Try the demo**, secondary **See plans**. Beside it, a real board that writes itself out and then moves on to the next field: fourteen example boards across physics, history, chemistry, English, finance, geography and so on (`src/ui/showcase.ts`), no subject taking more than two. They are hand-written, captioned as examples, and validated like any board.
+1. **Header** — sticky. Wordmark, **Use my own API key**, **I have an access code**, **See plans**. When a plan or an own key is already connected on the device, just **Start solving**, and the hero leads with it and says which is connected.
+2. **Hero** — "Stuck on a question? Watch it solved step by step." Directly under it, above the fold on a phone, the question box with **Solve it**: asking is the main action of the page. Under the box **Try the demo** and **See plans**, then one paragraph on how it works. Beside it, a real board that writes itself out and then moves on to the next field: fourteen example boards across physics, history, chemistry, English, finance, geography and so on (`src/ui/showcase.ts`), no subject taking more than two. They are hand-written, captioned as examples, and validated like any board.
 3. **How it works** — five steps: you bring the question, it reads it properly, it solves it on a board, it explains aloud, you can interrupt.
 4. **Comparison** — a video course, an AI chatbot and LemmeTeach against the same six behaviours, worded fairly.
 5. **Subjects** — an explorer (`src/ui/SubjectExplorer.tsx`): pick a subject and see how it is handled (the subject pack's own rules, in a sentence), an example board in that subject, and the kind of thing people ask.
-6. **Plans** — the three plans from `shared/plans.ts`: price, approximate questions a month, cents per question, **Choose** button to checkout. The one badge, lowest price per question, is computed from the table. Under the plans, an offer for anyone who already has an API key: use it, pay your provider, pay us nothing.
+6. **Plans** — the three plans from `shared/plans.ts`: price, approximate questions a month, cents per question, **Choose** button that opens Paddle's checkout over the page. The one badge, lowest price per question, is computed from the table. Under the plans, an offer for anyone who already has an API key: use it, pay your provider, pay us nothing.
 7. **Questions** — whether it can be used without subscribing, what counts as one question, what can be uploaded, what happens when they run out, where the data lives, two devices, cancelling.
 8. **Closing** — "See a question solved before you pay for one."
-9. **Footer** — wordmark and who handles payment. Terms, privacy and refunds links are still to be added (§23).
+9. **Footer** — wordmark and who handles payment (Paddle). Terms, privacy and refunds links are still to be added (§23).
 
 Rules:
 
@@ -1304,3 +1320,33 @@ Rules:
 - No testimonials, logos, or user counts that are not real. No countdown timers.
 - A plan button with no checkout URL configured is visibly disabled and says so, rather than leading nowhere.
 - Responsive to 360px, keyboard reachable, contrast ≥ 4.5:1 — the same floor as the rest of the app.
+
+---
+
+## 30. Growth: sharing and counts
+
+Added for the YC application, where what counts is real people coming back. These reverse an earlier anti-goal by decision of the founder: there is now a small server-side store, and some usage is counted.
+
+**There are no free real questions.** A free tier was built and then removed before it shipped, by decision of the founder: every free question costs real money, and there is no budget for that yet. Solving needs a plan or the learner's own key. The prepared demo stays free because it makes no model request. A test holds this: a visitor with neither cannot cause a request to a model. Do not bring free credit back without being asked.
+
+**The path:** the question box on the home page → **Start**: a plan, their own key, or the demo → their question waiting in the box → solved, with stop and ask → the summary, with **Share this solution**. A shared link leads a new person to the same box.
+
+### 30.1 The store
+
+One Upstash Redis database over its REST API (`api/_lib/store.ts`), no client library. It holds counts, rate limits and shared links. It is optional, and needs no OpenRouter account: without it the site runs, and sharing and counting are off.
+
+### 30.2 Shared solutions (`api/share.ts`, `src/growth/share.ts`, `src/ui/ShareBox.tsx`)
+
+Pressing **Make a link** stores the plan, board, narration and notes, and nothing about the session or device. The link is `?s=<id>`, kept for six months, and **Stop sharing** removes it with a token only that browser holds. Figures made by `run_code` are not included; the board shows that the figure is no longer available. Uploads are never included. Limit: 200 KB, thirty links per network per day.
+
+A shared record is untrusted input. It is opened through a replay, so every step passes the same tool bus and validator as a model's output, and it is never rendered on the server. Opening one costs the viewer nothing and is not saved to their history. Addresses are never stored: limits key on an HMAC of the address and the day.
+
+### 30.3 Usage counts (`api/event.ts`, `api/stats.ts`, `src/growth/track.ts`)
+
+A word from the fixed list in `shared/events.ts` and a random id made in the browser. The id goes only into HyperLogLog counters, which can count distinct ids but cannot give one back. No text, no address. A browser that sends Global Privacy Control or Do Not Track is not counted, nor is a development build. Each network is capped per day so a script cannot write the numbers.
+
+`GET /api/stats` with `Authorization: Bearer $STATS_TOKEN` returns daily counts, daily active visitors, and weekly retention by first week. With no token set it answers nobody.
+
+### 30.4 Not built
+
+Exam mode, weak-spot memory and Urdu or Hindi explanations (recommended, deliberately held until real users ask). Email of any kind.

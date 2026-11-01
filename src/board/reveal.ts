@@ -29,6 +29,8 @@ export interface UseRevealOptions {
   muted: boolean;
   paused: boolean;
   reducedMotion: boolean;
+  /** Changes when the learner asks for the step to be explained again from the start. */
+  nonce?: number;
   onStepDone?: (stepId: string) => void;
 }
 
@@ -50,8 +52,15 @@ export function useReveal(step: BoardStep | null, opts: UseRevealOptions): Revea
   const [speakingStepId, setSpeakingStepId] = useState<string | null>(null);
   const doneRef = useRef(opts.onStepDone);
   doneRef.current = opts.onStepDone;
+  /**
+   * Where the step being narrated had got to. A pause, or a change of speed
+   * or voice, picks up from that sentence rather than saying the whole step
+   * again and rubbing out what was already written.
+   */
+  const resumeRef = useRef<{ id: string; sentence: number; progress: number } | null>(null);
+  const nonceRef = useRef(opts.nonce ?? 0);
 
-  const { rate, voiceName, muted, paused, reducedMotion } = opts;
+  const { rate, voiceName, muted, paused, reducedMotion, nonce = 0 } = opts;
 
   useEffect(() => {
     if (!step) {
@@ -66,14 +75,24 @@ export function useReveal(step: BoardStep | null, opts: UseRevealOptions): Revea
       return;
     }
 
+    // Explaining it again from the start was asked for: forget where it was.
+    if (nonceRef.current !== nonce) {
+      nonceRef.current = nonce;
+      resumeRef.current = null;
+    }
+    const resume = resumeRef.current?.id === step.id ? resumeRef.current : null;
+
     const units = totalRevealUnits(step.ops);
     setSpeakingStepId(step.id);
-    setProgress(0);
+    setProgress(resume?.progress ?? 0);
 
     if (reducedMotion) {
       // Everything is written at once, but the step still takes its narration
       // time — the lesson is paced the same, it simply does not animate.
       setReveal((m) => new Map(m).set(step.id, units));
+    } else if (resume) {
+      // Carrying on: what is written stays written.
+      setReveal((m) => new Map(m).set(step.id, Math.max(m.get(step.id) ?? 0, Math.ceil(resume.progress * units))));
     } else {
       setReveal((m) => new Map(m).set(step.id, 0));
     }
@@ -82,8 +101,10 @@ export function useReveal(step: BoardStep | null, opts: UseRevealOptions): Revea
       rate,
       voiceName,
       muted,
-      onProgress: ({ progress: p, done }) => {
+      fromSentence: resume?.sentence,
+      onProgress: ({ progress: p, done, sentence }) => {
         setProgress(p);
+        resumeRef.current = done ? null : { id: step.id, sentence, progress: p };
         if (!reducedMotion) {
           // Reveal slightly ahead of the words so the learner is looking at
           // the thing as it is described, not just after.
@@ -99,7 +120,7 @@ export function useReveal(step: BoardStep | null, opts: UseRevealOptions): Revea
     });
 
     return () => narration.cancel();
-  }, [step, paused, rate, voiceName, muted, reducedMotion]);
+  }, [step, paused, rate, voiceName, muted, reducedMotion, nonce]);
 
   // Speech must never outlive the component (§14).
   useEffect(() => cancelSpeech, []);

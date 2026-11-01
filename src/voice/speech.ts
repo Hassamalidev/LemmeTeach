@@ -16,6 +16,8 @@ export interface SpeechProgress {
   /** 0..1 through the current narration. */
   progress: number;
   done: boolean;
+  /** The sentence being spoken, so a pause can pick up from it. */
+  sentence: number;
 }
 
 export interface SpeakOptions {
@@ -23,6 +25,11 @@ export interface SpeakOptions {
   voiceName: string | null;
   muted: boolean;
   onProgress: (p: SpeechProgress) => void;
+  /**
+   * Start from this sentence rather than the first. Used to carry on after a
+   * pause, or a change of speed or voice, without saying it all again.
+   */
+  fromSentence?: number;
 }
 
 /** Words per minute at rate 1, used to size the fallback timer. */
@@ -199,9 +206,12 @@ export class Narration {
 
   constructor(private onProgress: (p: SpeechProgress) => void) {}
 
+  /** The sentence being spoken, reported with every progress update. */
+  sentence = 0;
+
   private report(progress: number, done: boolean): void {
     if (this.cancelled) return;
-    this.onProgress({ progress: Math.max(0, Math.min(1, progress)), done });
+    this.onProgress({ progress: Math.max(0, Math.min(1, progress)), done, sentence: this.sentence });
   }
 
   /**
@@ -262,6 +272,62 @@ export class Narration {
 
 let active: Narration | null = null;
 
+/**
+ * Utterances being spoken. Chrome can garbage-collect an utterance that
+ * nothing in the page refers to while it is still speaking, and then its
+ * `end` event never fires: the step waits on a sentence that will never
+ * finish. Holding them here until they settle prevents that.
+ */
+const speaking = new Set<SpeechSynthesisUtterance>();
+
+/**
+ * Narration is written for the ear, but a model sometimes lets notation
+ * through. A speech engine reads "m/s" as "m slash s" and drops "°" entirely,
+ * so the common cases are turned into words before they are spoken. The
+ * board is not touched: this is only what the voice says.
+ */
+export function speakable(text: string): string {
+  return (
+    text
+      // Markdown and LaTeX wrappers carry no sound.
+      .replace(/\\[()[\]]|\$+/g, ' ')
+      .replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, '$1 over $2')
+      .replace(/\\sqrt\{([^{}]*)\}/g, 'the square root of $1')
+      .replace(/\\(cdot|times)\b/g, ' times ')
+      .replace(/\\(pi|theta|alpha|beta|gamma|delta|lambda|mu|sigma|omega|phi)\b/g, ' $1 ')
+      .replace(/\\[a-zA-Z]+/g, ' ')
+      .replace(/[{}]/g, ' ')
+      .replace(/\*\*|__|`|#+\s/g, '')
+      // Units, after a number or on their own.
+      .replace(/\bm\/s(\^2|²)/g, 'metres per second squared')
+      .replace(/\bm\/s\b/g, 'metres per second')
+      .replace(/\bkm\/h\b/g, 'kilometres per hour')
+      .replace(/\bkg\/m(\^3|³)/g, 'kilograms per cubic metre')
+      .replace(/(\d)\s*°\s*C\b/g, '$1 degrees Celsius')
+      .replace(/(\d)\s*°/g, '$1 degrees')
+      .replace(/(\d)\s*%/g, '$1 percent')
+      // Powers and roots.
+      .replace(/\^2(?!\d)|²/g, ' squared')
+      .replace(/\^3(?!\d)|³/g, ' cubed')
+      .replace(/\^\(?(-?\w+)\)?/g, ' to the power $1')
+      .replace(/√\s*/g, 'the square root of ')
+      // Symbols a voice would skip or misread.
+      .replace(/\s*≈\s*/g, ' approximately ')
+      .replace(/\s*≠\s*/g, ' is not equal to ')
+      .replace(/\s*≤\s*/g, ' is at most ')
+      .replace(/\s*≥\s*/g, ' is at least ')
+      .replace(/\s*(→|=>)\s*/g, ', which gives ')
+      .replace(/\s*[×·]\s*/g, ' times ')
+      .replace(/\s*÷\s*/g, ' divided by ')
+      .replace(/\s+=\s+/g, ' equals ')
+      .replace(/π/g, ' pi ')
+      .replace(/θ/g, ' theta ')
+      .replace(/Δ/g, ' change in ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  );
+}
+
 /** Stops whatever is speaking. Safe to call at any time, from any path. */
 export function cancelSpeech(): void {
   active?.cancel();
@@ -284,17 +350,21 @@ export function speak(text: string, opts: SpeakOptions): Narration {
   // Muted, or no engine at all: the board still advances on a timer sized to
   // the narration, and the transcript panel carries the words (§14).
   if (opts.muted || !speechAvailable()) {
-    narration.runTimer(totalMs);
+    const all = splitSentences(text);
+    const from = Math.max(0, Math.min(opts.fromSentence ?? 0, all.length));
+    const before = all.slice(0, from).join(' ').length;
+    const share = all.length ? before / Math.max(1, all.join(' ').length) : 0;
+    narration.runTimer(totalMs * (1 - share), share);
     return narration;
   }
 
-  const sentences = splitSentences(text);
+  const sentences = splitSentences(speakable(text));
   const totalChars = Math.max(1, sentences.reduce((n, s) => n + s.length, 0));
   const voices = window.speechSynthesis.getVoices();
   const voice = pickVoice(voices, opts.voiceName);
 
-  let charsDone = 0;
-  let index = 0;
+  let index = Math.max(0, Math.min(opts.fromSentence ?? 0, sentences.length));
+  let charsDone = sentences.slice(0, index).reduce((n, s) => n + s.length, 0);
   let sawBoundary = false;
 
   const speakNext = (): void => {
@@ -306,7 +376,10 @@ export function speak(text: string, opts: SpeakOptions): Narration {
       return;
     }
 
+    narration.sentence = index;
     const utterance = new SpeechSynthesisUtterance(sentence);
+    speaking.add(utterance);
+    narration.track(() => speaking.delete(utterance));
     utterance.rate = opts.rate;
     if (voice) {
       utterance.voice = voice;
@@ -334,6 +407,7 @@ export function speak(text: string, opts: SpeakOptions): Narration {
     const toClock = (): void => {
       if (settled || narration.isCancelled) return;
       settled = true;
+      speaking.delete(utterance);
       window.clearTimeout(watchdog);
       narration.runTimer(totalMs * (1 - base), base);
     };
@@ -341,6 +415,7 @@ export function speak(text: string, opts: SpeakOptions): Narration {
     utterance.onend = () => {
       if (settled) return;
       settled = true;
+      speaking.delete(utterance);
       window.clearTimeout(watchdog);
       charsDone += sentence.length;
       index += 1;

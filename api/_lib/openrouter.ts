@@ -6,7 +6,7 @@
  * path that issues an uncapped one.
  */
 import { env, UpstreamError } from './http.js';
-import { keyBelongsToOrder, type KeyRecord } from './grants.js';
+import { keyBelongsTo, type KeyRecord } from './grants.js';
 
 const BASE = 'https://openrouter.ai/api/v1';
 
@@ -42,13 +42,13 @@ async function call(path: string, init: RequestInit = {}): Promise<unknown> {
 }
 
 /**
- * Find the key belonging to a Lemon Squeezy order.
+ * Find the key belonging to a Paddle subscription.
  *
  * There is no database (§26.10): the key's name is the record, so this walks
  * the key list. Fine for hundreds of subscribers; move to a key-value store
  * before thousands.
  */
-export async function findKeyByOrder(orderId: string): Promise<KeyRecord | null> {
+export async function findKeyBySubscription(subscriptionId: string): Promise<KeyRecord | null> {
   const MAX_PAGES = 100;
   let offset = 0;
   for (let page = 0; page < MAX_PAGES; page++) {
@@ -57,7 +57,7 @@ export async function findKeyByOrder(orderId: string): Promise<KeyRecord | null>
     };
     const keys = body.data ?? [];
     if (keys.length === 0) return null;
-    const match = keys.find((k) => keyBelongsToOrder(k.name ?? '', orderId));
+    const match = keys.find((k) => keyBelongsTo(k.name ?? '', subscriptionId));
     if (match) return toRecord(match);
     offset += keys.length;
   }

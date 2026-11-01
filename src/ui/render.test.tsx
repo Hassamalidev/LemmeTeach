@@ -121,17 +121,20 @@ describe('the app', () => {
     expect(container.textContent).toContain('What do you want solved?');
   }, 20_000);
 
-  it('says where the license key is stored, on the screen where it is entered', () => {
+  it('says where the access code is stored, on the screen where it is entered', () => {
     render(<App />);
-    press('I have a license key');
-    expect(container.textContent).toContain('License key');
+    press('I have an access code');
+    expect(container.textContent).toContain('Access code');
     expect(container.textContent).toMatch(/stored in this browser/i);
   });
 
-  it('opens on the question box for a subscriber, with their plan shown', () => {
+  it('opens on the home page for a subscriber too, one press from the question box', () => {
     setKey(MANAGED_PROVIDER_ID, 'sk-or-v1-a-provisioned-key-for-this-test', true);
-    setLicense({ licenseKey: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE', planId: 'regular', activatedAt: 1 });
+    setLicense({ licenseKey: 'txn_01hv8x2v3k4m5n6p7q8r9s0t1u', planId: 'regular', activatedAt: 1 });
     render(<App />);
+    expect(container.textContent).not.toContain('What do you want solved?');
+    expect(container.textContent).toMatch(/plan is connected on this device/);
+    press('Start solving');
     expect(container.textContent).toContain('What do you want solved?');
     expect(container.textContent).toContain('Regular plan');
     expect(container.textContent).not.toMatch(/this is the demo/i);

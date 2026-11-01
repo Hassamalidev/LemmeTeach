@@ -29,24 +29,24 @@ export const PLANS: readonly Plan[] = [
     id: 'starter',
     name: 'Starter',
     priceUsd: 8,
-    creditUsd: 4.25,
-    lessons: 280,
-    blurb: 'Around nine questions a day alongside a course.',
+    creditUsd: 4.5,
+    lessons: 300,
+    blurb: 'Around ten questions a day alongside a course.',
   },
   {
     id: 'regular',
     name: 'Regular',
     priceUsd: 12,
-    creditUsd: 7.75,
-    lessons: 500,
+    creditUsd: 8,
+    lessons: 530,
     blurb: 'Homework and revision across several subjects.',
   },
   {
     id: 'intensive',
     name: 'Intensive',
     priceUsd: 20,
-    creditUsd: 14.75,
-    lessons: 950,
+    creditUsd: 15,
+    lessons: 1000,
     blurb: 'Heavy daily use, long problem sheets, or the deeper tutor.',
   },
 ];
@@ -80,12 +80,15 @@ export const INFRA_ALLOWANCE_USD = 0.25;
  * off the providers' own pricing pages — re-check before changing a price.
  */
 export const FEES = {
-  checkedOn: '2026-10-08',
-  /** Lemon Squeezy: 5% platform + 0.5% subscription + 1.5% international. */
-  paymentPercent: 0.07,
-  /** Lemon Squeezy: fixed fee per transaction. */
+  checkedOn: '2026-10-18',
+  /**
+   * Paddle: 5% per transaction, all in. As merchant of record it handles tax,
+   * cards, currencies and international sales inside that figure.
+   */
+  paymentPercent: 0.05,
+  /** Paddle: fixed fee per transaction. */
   paymentFixedUsd: 0.5,
-  /** Lemon Squeezy: payout to a bank account outside the US. */
+  /** Payout to a bank account outside the US, allowed for in case it costs. */
   payoutPercent: 0.01,
   /** OpenRouter: fee on buying the credit we hand out. */
   creditPurchasePercent: 0.055,

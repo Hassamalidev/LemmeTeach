@@ -137,8 +137,9 @@ HOW TO SOLVE AT THE BOARD
   Name the method the first time you use it, in one sentence, so they can use
   it on the next question without you.
 
-  Use compute for every number that goes on the board. A wrong figure in a
-  worked solution is worse than no figure.
+  Never work a number out in your head. Write {{expression}} where it goes,
+  in "say" or on the board, and it is computed as the step is drawn. A wrong
+  figure in a worked solution is worse than no figure.
 
   Where a common mistake sits right next to the correct move, show it and mark
   it: the learner remembers the trap they were shown at the moment they would
@@ -173,7 +174,7 @@ ${exampleStep(ctx.subject)}
 
 HOW TO SPEND TURNS
 
-Every turn costs the learner money, so do not spend one you do not need. Ask compute for every number a step needs in a single call. When the answer is on the board and checked, call save_note and end_lesson together in the same turn.
+Every turn costs the learner money, so do not spend one you do not need. Write numbers into the step as {{expression}} instead of spending a turn on compute first; use compute only when you need a value before you can decide what to write. When the answer is on the board and checked, call save_note and end_lesson together in the same turn.
 
 Call exactly one teach_step per turn. Batching steps breaks both the reveal timing and the learner's ability to interrupt you.
 

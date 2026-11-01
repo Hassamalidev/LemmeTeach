@@ -15,6 +15,7 @@ import type { Session, SessionState } from '../orchestrator/session';
 import { isRunning, PHASE_LABELS } from '../orchestrator/machine';
 import type { Settings } from '../storage/settings';
 import { SUBJECT_ACCENTS } from '../core/types';
+import { track } from '../growth/track';
 import { AskPanel } from './AskPanel';
 import { Composer } from './Composer';
 import { Meter } from './Meter';
@@ -23,7 +24,7 @@ import { Transcript } from './Transcript';
 import { Shortcuts } from './Shortcuts';
 
 /** How the learner got here, which decides what a rejected key means. */
-export type Access = 'plan' | 'own-key' | 'demo' | 'replay';
+export type Access = 'plan' | 'own-key' | 'demo' | 'replay' | 'shared';
 
 export function LessonScreen({
   session,
@@ -54,6 +55,8 @@ export function LessonScreen({
   const [focusAsk, setFocusAsk] = useState(0);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [manualStep, setManualStep] = useState<string | null>(null);
+  /** Bumped to explain a step again from its start. */
+  const [replayNonce, setReplayNonce] = useState(0);
 
   const reducedMotion = useMemo(
     () => settings.reducedMotion === 'always' || prefersReducedMotion(),
@@ -159,6 +162,7 @@ export function LessonScreen({
     muted: settings.muted,
     paused: paused || state.pending !== null || raising !== 'no' || heldForAnswer,
     reducedMotion,
+    nonce: replayNonce,
     onStepDone: (id) => {
       if (manualStep) {
         setManualStep(null);
@@ -208,19 +212,33 @@ export function LessonScreen({
   // Speech must never outlive this screen (§14).
   useEffect(() => cancelSpeech, []);
 
+  /**
+   * Explain a step from its start. The step the playlist is on is simply
+   * restarted; any other is played as an aside to the playlist, which then
+   * carries on where it was. (Setting the playlist's own step as the aside
+   * would change nothing the narration can see, and playback would stall.)
+   */
+  const playFromStart = useCallback(
+    (id: string) => {
+      setManualStep(id === queued?.id ? null : id);
+      setReplayNonce((n) => n + 1);
+    },
+    [queued],
+  );
+
   const stepTo = useCallback(
     (delta: number) => {
       const index = shown.indexOf(narrating?.id ?? shown.at(-1) ?? '');
       const next = shown[Math.max(0, Math.min(shown.length - 1, index + delta))];
-      if (next) setManualStep(next);
+      if (next) playFromStart(next);
     },
-    [shown, narrating],
+    [shown, narrating, playFromStart],
   );
 
   const replay = useCallback(() => {
     const id = narrating?.id ?? shown.at(-1);
-    if (id) setManualStep(id);
-  }, [narrating, shown]);
+    if (id) playFromStart(id);
+  }, [narrating, shown, playFromStart]);
 
   /** Stop the explanation at once, so the learner can ask (§15). */
   const stopAndAsk = useCallback(
@@ -286,6 +304,7 @@ export function LessonScreen({
           {state.plan && <span className="dim"> · {state.plan.title}</span>}
         </span>
         {access === 'replay' && <span className="pill pill-accent">Replay · free</span>}
+        {access === 'shared' && <span className="pill pill-accent">Shared solution</span>}
         {access === 'demo' && (
           <>
             <span className="pill">Demo</span>
@@ -323,7 +342,7 @@ export function LessonScreen({
                   <strong>Your plan is no longer connected on this device.</strong>
                   <div className="small dim" style={{ marginTop: 6 }}>
                     {reconnect ??
-                      'This happens when the license is used on another device, or when the subscription has ended. What was written so far is saved.'}
+                      'This happens when your access code is used on another device, or when the subscription has ended. What was written so far is saved.'}
                   </div>
                   <div className="row" style={{ marginTop: 10 }}>
                     <button
@@ -370,6 +389,7 @@ export function LessonScreen({
               steps={boardSteps}
               breaks={breaks}
               asides={asides}
+              questions={state.asideQuestions}
               followId={narrating?.id ?? null}
               theme={settings.theme}
               subject={session.subject}
@@ -416,11 +436,14 @@ export function LessonScreen({
                 ? 'The demo plays a prepared walkthrough, so it cannot really answer you: it will carry on with its next step. With a plan or your own key, it answers what you ask.'
                 : access === 'replay'
                   ? 'This is a replay of a question you already had solved, so it cannot answer something new: it will carry on with its next step. To ask about it, go back and solve it again.'
-                  : undefined
+                  : access === 'shared'
+                    ? 'This is a solution someone shared, so it cannot answer you: it will carry on with its next step. To ask about it, solve the question yourself.'
+                    : undefined
             }
             onEngage={() => stopAndAsk('typing')}
             onRelease={() => setRaising('no')}
             onAsk={(q) => {
+              track('hand_raised');
               session.raiseHand(q);
               setRaising('no');
             }}

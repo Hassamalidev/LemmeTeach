@@ -20,6 +20,7 @@ export function VectorsOpView({ op, revealed, register }: OpProps<VectorsOpType>
   const cy = H / 2;
   const longest = Math.max(...op.arrows.map((a) => Math.hypot(a.dx, a.dy)), 1);
   const scale = Math.min((W / 2 - 90) / longest, (H / 2 - 46) / longest);
+  const labels = placeLabels(op.arrows, cx, cy, scale);
 
   return (
     <div ref={ref} className="op op-vectors">
@@ -61,9 +62,9 @@ export function VectorsOpView({ op, revealed, register }: OpProps<VectorsOpType>
                 markerEnd={`url(#vhead-${op.id ?? 'v'})`}
               />
               <text
-                x={ex + Math.sign(a.dx || 1) * 10}
-                y={ey - 10}
-                textAnchor={a.dx < 0 ? 'end' : 'start'}
+                x={labels[i]?.x ?? ex}
+                y={labels[i]?.y ?? ey}
+                textAnchor={labels[i]?.anchor ?? 'start'}
                 className="vector-label"
               >
                 {a.label}
@@ -81,6 +82,63 @@ export function VectorsOpView({ op, revealed, register }: OpProps<VectorsOpType>
       </svg>
     </div>
   );
+}
+
+interface LabelSpot {
+  x: number;
+  y: number;
+  anchor: 'start' | 'middle' | 'end';
+}
+
+/** Roughly how wide a label is at the board's 14px label size. */
+const charWidth = 7.4;
+const lineHeight = 18;
+
+/**
+ * Where each arrow's label goes: just past its tip, along the arrow, so it
+ * reads as belonging to that arrow. Arrows that end near each other would put
+ * their labels on top of one another — a real board showed "Vertical" and
+ * "Actual path" printed over each other — so a label that would collide with
+ * one already placed is moved a line up or down until it is clear.
+ */
+export function placeLabels(
+  arrows: { label: string; dx: number; dy: number }[],
+  cx: number,
+  cy: number,
+  scale: number,
+): LabelSpot[] {
+  const placed: { x0: number; x1: number; y0: number; y1: number }[] = [];
+  return arrows.map((a) => {
+    const ex = cx + a.dx * scale;
+    const ey = cy - a.dy * scale;
+    const len = Math.hypot(a.dx, a.dy) || 1;
+    const ux = a.dx / len;
+    const uy = -a.dy / len;
+    // Mostly vertical arrows get a centred label; others hang off the side
+    // the arrow points to.
+    const anchor: LabelSpot['anchor'] = Math.abs(ux) < 0.35 ? 'middle' : ux < 0 ? 'end' : 'start';
+    const baseX = ex + ux * 10;
+    const baseY = ey + (uy <= 0 ? -10 : 18) + (anchor === 'middle' ? uy * 6 : 0);
+    const width = a.label.length * charWidth;
+    const box = (y: number): { x0: number; x1: number; y0: number; y1: number } => {
+      const x0 = anchor === 'start' ? baseX : anchor === 'end' ? baseX - width : baseX - width / 2;
+      return { x0, x1: x0 + width, y0: y - 14, y1: y + 4 };
+    };
+    const clear = (b: ReturnType<typeof box>): boolean =>
+      placed.every((p) => b.x1 < p.x0 || b.x0 > p.x1 || b.y1 < p.y0 || b.y0 > p.y1);
+
+    let y = baseY;
+    for (const shift of [0, -1, 1, -2, 2, -3, 3]) {
+      const candidate = baseY + shift * lineHeight;
+      if (candidate < 14 || candidate > H - 4) continue;
+      if (clear(box(candidate))) {
+        y = candidate;
+        break;
+      }
+    }
+    placed.push(box(y));
+    return { x: baseX, y, anchor };
+  });
 }
 
 function describe(op: VectorsOpType): string {

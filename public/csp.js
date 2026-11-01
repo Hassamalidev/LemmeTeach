@@ -31,11 +31,14 @@
     'https://dashscope-intl.aliyuncs.com',
     'https://api.moonshot.ai',
     'https://api.hyperbolic.xyz',
-    // TESTING ONLY — a local Ollama. Comment out with its entry in
-    // src/providers/own-key.ts before shipping.
-    'http://localhost:11434',
   ];
+  // A local Ollama, on a local page only. Matches the development-only entry
+  // in src/providers/own-key.ts; a deployed site never gets it.
+  if (location.hostname === 'localhost') PROVIDERS.push('http://localhost:11434');
   var KNOWLEDGE = ['https://en.wikipedia.org', 'https://*.wikipedia.org'];
+  // Paddle's checkout (§24): its script, the window it opens over the page,
+  // and the requests that window makes. Loaded only when someone pays.
+  var PADDLE = ['https://cdn.paddle.com', 'https://*.paddle.com'];
   var PYODIDE = ['https://cdn.jsdelivr.net'];
 
   var extra = [];
@@ -52,26 +55,26 @@
   }
 
   var connect = ["'self'", 'blob:', 'data:']
-    .concat(PROVIDERS, KNOWLEDGE, PYODIDE, extra)
+    .concat(PROVIDERS, KNOWLEDGE, PYODIDE, PADDLE, extra)
     .join(' ');
 
   var policy = [
     "default-src 'self'",
     // blob: lets the sandbox load learner code as a module instead of eval'ing
     // it; wasm-unsafe-eval is what Pyodide needs to compile its runtime.
-    "script-src 'self' blob: 'wasm-unsafe-eval' " + PYODIDE.join(' '),
+    "script-src 'self' blob: 'wasm-unsafe-eval' " + PYODIDE.concat(PADDLE).join(' '),
     "worker-src 'self' blob:",
     "child-src 'self' blob:",
-    "frame-src 'self' blob:",
+    "frame-src 'self' blob: " + PADDLE.join(' '),
     'connect-src ' + connect,
-    "img-src 'self' data: blob:",
+    "img-src 'self' data: blob: " + PADDLE.join(' '),
     // KaTeX and the board's computed layout both write style attributes.
-    "style-src 'self' 'unsafe-inline'",
-    "font-src 'self' data:",
+    // Paddle's checkout brings its own stylesheet and fonts.
+    "style-src 'self' 'unsafe-inline' " + PADDLE.join(' '),
+    "font-src 'self' data: " + PADDLE.join(' '),
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'none'",
-    "frame-ancestors 'none'",
   ].join('; ');
 
   var meta = document.createElement('meta');

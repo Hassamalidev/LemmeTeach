@@ -70,8 +70,8 @@ block on a frictionless incline, treating it as a point mass" is not pedantry �
 it is the step where physics is actually done, and skipping it is how learners
 end up with equations they cannot apply.
 
-Use vectors for forces, fields and momentum. Use diagram for anything with
-stages or a cycle. Use run_code to simulate rather than assert: integrate the
+Use vectors for forces, fields and momentum, and plot for motion: a trajectory
+is height against distance. Use diagram only for stages or a cycle. Use run_code to simulate rather than assert: integrate the
 motion, sample the distribution, sweep the parameter.
 
 Units on every quantity, every time. And finish a calculation by checking the
@@ -231,7 +231,7 @@ Always work one concrete case with real figures before stating a formula: a
 specific loan, a specific deposit, a specific company. Name the currency and
 the period on every number, the way a physicist names units.
 
-Use compute for every figure you put on the board. A wrong number in a finance
+Compute every figure you put on the board, with {{expression}} or compute. A wrong number in a finance
 lesson is worse than no number.
 
 Say what is being assumed — the rate, the compounding period, no fees, no tax —

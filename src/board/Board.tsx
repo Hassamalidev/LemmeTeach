@@ -143,6 +143,8 @@ export interface BoardScrollProps {
   breaks: ReadonlySet<string>;
   /** Steps that answer a raised hand rather than continue the solution. */
   asides: ReadonlySet<string>;
+  /** The question each answer step answers, shown at the top of its box. */
+  questions?: Readonly<Record<string, string>>;
   /** The step being explained now. The board keeps it in view. */
   followId: string | null;
   theme: BoardTheme;
@@ -163,6 +165,7 @@ export function BoardScroll({
   steps,
   breaks,
   asides,
+  questions,
   followId,
   theme,
   subject,
@@ -272,7 +275,12 @@ export function BoardScroll({
                 .filter(Boolean)
                 .join(' ')}
             >
-              {asides.has(step.id) && <div className="board-aside-label">Your question</div>}
+              {asides.has(step.id) && (
+                <div className="board-aside-label">
+                  Your question
+                  {questions?.[step.id] ? <span className="board-aside-question">{questions[step.id]}</span> : null}
+                </div>
+              )}
               <StepView step={step} col="main" reveal={reveal} register={register} theme={theme} />
               <StepView step={step} col="side" reveal={reveal} register={register} theme={theme} />
             </div>

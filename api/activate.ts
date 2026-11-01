@@ -1,19 +1,25 @@
 /**
- * POST /api/activate — a license key in, a spend-capped model key out (§28.2).
+ * POST /api/activate — an access code in, a spend-capped model key out (§28.2).
+ *
+ * The access code is the id of a Paddle transaction on the subscription
+ * (`txn_…`). The browser gets it straight from Paddle when checkout finishes,
+ * and the learner keeps it to use their plan on another device.
  *
  * This is the only moment a learner's browser talks to our backend. Nothing
- * about a lesson ever comes through here.
+ * about a question ever comes through here.
  */
 import { planById } from '../shared/plans.js';
-import { ConfigError, env, json, UpstreamError } from './_lib/http.js';
-import { planForVariant, validateLicense } from './_lib/lemon.js';
-import { createKey, deleteKey, findKeyByOrder } from './_lib/openrouter.js';
-import { formatKeyName, INIT_MARKER, remainingOn } from './_lib/grants.js';
+import { ConfigError, json, UpstreamError } from './_lib/http.js';
+import { getSubscription, getTransaction } from './_lib/paddle.js';
+import { createKey, deleteKey, findKeyBySubscription, updateKey } from './_lib/openrouter.js';
+import { decide, remainingOn, type KeyRecord } from './_lib/grants.js';
 
 /** Codes the app turns into sentences. Never a raw upstream message. */
 type Refusal =
   | 'bad_request'
-  | 'invalid_license'
+  | 'invalid_code'
+  | 'not_paid'
+  | 'pending'
   | 'subscription_ended'
   | 'unknown_plan'
   | 'try_again'
@@ -21,45 +27,56 @@ type Refusal =
 
 const refuse = (status: number, code: Refusal): Response => json(status, { ok: false, code });
 
+/** What a Paddle transaction id looks like. Anything else is not sent upstream. */
+const CODE = /^txn_[a-z0-9]{20,40}$/;
+
+/** A transaction that has been paid for. */
+const PAID = new Set(['paid', 'completed']);
+
 export async function POST(request: Request): Promise<Response> {
-  let licenseKey = '';
+  let code = '';
   try {
-    const body = (await request.json()) as { licenseKey?: unknown };
-    if (typeof body.licenseKey === 'string') licenseKey = body.licenseKey.trim();
+    const body = (await request.json()) as { code?: unknown };
+    if (typeof body.code === 'string') code = body.code.trim().toLowerCase();
   } catch {
     return refuse(400, 'bad_request');
   }
-  if (licenseKey.length < 8 || licenseKey.length > 200) return refuse(400, 'bad_request');
+  if (!CODE.test(code)) return refuse(400, 'bad_request');
 
   try {
-    const license = await validateLicense(licenseKey);
+    const transaction = await getTransaction(code);
+    if (!transaction) return refuse(403, 'invalid_code');
+    if (!PAID.has(transaction.status)) return refuse(402, 'not_paid');
+    // Paid, but Paddle has not attached the subscription yet. It does within
+    // seconds of checkout; the browser asks again.
+    if (!transaction.subscriptionId) return refuse(409, 'pending');
 
-    // A valid license from somebody else's store is not a license for this.
-    if (!license.valid || !license.orderId || license.storeId !== env('LEMONSQUEEZY_STORE_ID')) {
-      return refuse(403, 'invalid_license');
-    }
-    if (license.status === 'expired' || license.status === 'disabled') {
-      return refuse(403, 'subscription_ended');
-    }
-
-    const plan = planById(planForVariant(license.variantId));
+    const sub = await getSubscription(transaction.subscriptionId);
+    if (!sub) return refuse(409, 'pending');
+    const plan = planById(sub.planId);
     if (!plan) return refuse(403, 'unknown_plan');
 
-    const existing = await findKeyByOrder(license.orderId);
-    if (existing?.disabled) return refuse(403, 'subscription_ended');
+    // Run the same rules the webhook does, against what Paddle says right
+    // now. A missed or delayed webhook is caught up here, and because the
+    // rules are idempotent, nothing is ever granted twice.
+    let key: KeyRecord | null = await findKeyBySubscription(sub.subscriptionId);
+    const action = decide('subscription', sub, key);
 
-    let name = formatKeyName({ orderId: license.orderId, planId: plan.id, marker: INIT_MARKER });
-    let limit = plan.creditUsd;
-
-    if (existing) {
-      // The raw key cannot be read back, so rotate: the new key inherits
-      // exactly what was left on the old one, and its record.
-      name = existing.name;
-      limit = remainingOn(existing);
-      await deleteKey(existing.hash);
+    if (action.do === 'create') {
+      const { apiKey } = await createKey(action.name, action.limit);
+      return json(200, { ok: true, apiKey, plan: plan.id, creditUsd: action.limit });
     }
+    if (action.do === 'update' && key) {
+      await updateKey(action.hash, action.patch);
+      key = { ...key, ...action.patch };
+    }
+    if (!key || key.disabled) return refuse(403, 'subscription_ended');
 
-    const { apiKey } = await createKey(name, limit);
+    // The raw key cannot be read back, so rotate: the new key inherits
+    // exactly what was left on the old one, and its record.
+    const limit = remainingOn(key);
+    await deleteKey(key.hash);
+    const { apiKey } = await createKey(key.name, limit);
     return json(200, { ok: true, apiKey, plan: plan.id, creditUsd: limit });
   } catch (err) {
     if (err instanceof ConfigError) {

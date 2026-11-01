@@ -76,7 +76,14 @@ export function PlotOpView({ op, revealed, register }: OpProps<PlotOpType>): JSX
               <g key={i} className={shown(revealed, op.fns.length + 1) ? 'mark-in' : 'plot-hidden'}>
                 <circle cx={px} cy={py} r="4.5" className="plot-mark" />
                 {mk.label ? (
-                  <text x={px + 9} y={py - 8} className="mark-label">
+                  // A mark near the right edge has its label to its left, so
+                  // the label is not cut off by the edge of the plot.
+                  <text
+                    x={px + 9 + mk.label.length * 7.5 > W ? px - 9 : px + 9}
+                    y={py - 8}
+                    textAnchor={px + 9 + mk.label.length * 7.5 > W ? 'end' : 'start'}
+                    className="mark-label"
+                  >
                     {mk.label}
                   </text>
                 ) : null}

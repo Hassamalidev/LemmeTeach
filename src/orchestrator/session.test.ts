@@ -379,6 +379,8 @@ describe('a raised hand with a screen attached', () => {
     expect(h.session.state.aside).toBe('waiting');
     const answer = h.session.board.allSteps()[2];
     expect(h.session.state.asideStepIds).toEqual([answer?.id]);
+    // The board shows what was asked, with its answer.
+    expect(h.session.state.asideQuestions[answer?.id ?? '']).toBe('Why is that allowed?');
 
     // However long they take to decide, and however much has been spoken.
     h.session.stepNarrated();

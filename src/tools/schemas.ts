@@ -247,9 +247,11 @@ export const EndLessonInput = z
       .min(1)
       .max(1200)
       .describe('What the question was, the method, and the answer, in plain language.'),
-    objectivesMet: z.array(z.string().max(16)).max(8),
-    objectivesMissed: z.array(z.string().max(16)).max(8),
-    nextTopics: z.array(z.string().max(120)).max(5),
+    // Empty is the obvious answer when one is left out, so it is the default
+    // rather than a rejection that costs a turn.
+    objectivesMet: z.array(z.string().max(16)).max(8).default([]),
+    objectivesMissed: z.array(z.string().max(16)).max(8).default([]),
+    nextTopics: z.array(z.string().max(120)).max(5).default([]),
   })
   .strict();
 

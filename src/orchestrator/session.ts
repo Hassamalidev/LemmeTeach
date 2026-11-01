@@ -82,6 +82,8 @@ export interface SessionState {
   aside: 'none' | 'answering' | 'waiting';
   /** Steps written as answers to a raised hand, not part of the solution. */
   asideStepIds: string[];
+  /** What was asked, for each of those steps, so the board can show it with its answer. */
+  asideQuestions: Record<string, string>;
 }
 
 export interface SessionOptions {
@@ -148,6 +150,10 @@ export class Session {
   private interruption: string | null = null;
   private aside: SessionState['aside'] = 'none';
   private asideSteps = new Set<string>();
+  /** The question each answer step answers. */
+  private asideQuestions = new Map<string, string>();
+  /** The last question asked, kept for an explanation given again. */
+  private lastQuestion = '';
   /** What to tell the solver once the learner has said whether the answer landed. */
   private afterAside: string | null = null;
   private wrapUpSent = false;
@@ -193,6 +199,7 @@ export class Session {
       turn: this.turn,
       aside: this.aside,
       asideStepIds: [...this.asideSteps],
+      asideQuestions: Object.fromEntries(this.asideQuestions),
     };
   }
 
@@ -470,6 +477,7 @@ export class Session {
           // Marked before the screen hears of the step, so it is played as an
           // answer — straight away — rather than queued behind the solution.
           this.asideSteps.add(outcome.stepId);
+          if (this.lastQuestion) this.asideQuestions.set(outcome.stepId, this.lastQuestion);
           // With a screen attached the solution now waits for the learner.
           // With none, nobody could ever release it, so it carries on.
           this.aside = this.opts.pacing ? 'waiting' : 'none';
@@ -648,6 +656,7 @@ export class Session {
   raiseHand(question: string): void {
     const finished = this.phase === 'REVIEW';
     this.interruption = question;
+    this.lastQuestion = question;
     this.afterAside = null;
     this.aside = 'answering';
     this.transition({ t: 'raise_hand' });
@@ -769,9 +778,13 @@ export class Session {
   private async persist(): Promise<void> {
     if (this.opts.ephemeral) return;
     if (this.board.stepCount === 0 && !this.plan) return;
+    await saveLesson(this.solution());
+  }
 
+  /** This solution as it stands, as it would be saved. */
+  solution(): SolutionRecord {
     const usage = this.budget.snapshot();
-    const record: SolutionRecord = {
+    return {
       id: this.id,
       subject: this.subject,
       topic: this.opts.topic,
@@ -786,8 +799,6 @@ export class Session {
       ending: this.ending ?? undefined,
       tokens: { input: usage.inputTokens, output: usage.outputTokens },
     };
-
-    await saveLesson(record);
   }
 
   /** The repairer path, public for the integration tests. */
@@ -808,7 +819,7 @@ export class Session {
 function asideInstruction(question: string): string {
   return `The learner stopped you and asked: "${question}"
 
-Answer exactly this, in ONE teach_step, and do not carry on with the solution in that step.
+Answer exactly this, in ONE teach_step, and do not carry on with the solution in that step. That step is shown to them in a box headed with their question, so a step that does not answer it will look broken. Do not write the step you were about to write next; it waits.
 
 - Start from what they asked, not from where you were. If the question shows what they have misunderstood, address that directly.
 - Use the board: point at the line they are asking about, or work a tiny concrete example. Do not just say the same thing again in other words.

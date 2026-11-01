@@ -21,13 +21,15 @@
  * behaviour change and deserves a diff and a reason.
  */
 
-export const SKILLS_VERSION = '0.2';
+export const SKILLS_VERSION = '0.3';
 
 /**
  * 0.1  First version, from running the prepared walkthroughs through the
  *      engine: narration referred to answers nobody had given.
  * 0.2  Added with the scrolling board and the stop-and-ask flow: earlier work
  *      now stays on screen, and an answer to a question is one step.
+ * 0.3  A live projectile question drew the throw as three boxes in a flow
+ *      diagram (Launch, Peak, Land). A path has geometry; a diagram has none.
  */
 export const SOLVER_SKILLS: string[] = [
   'Never refer to something the learner said unless they said it. They have not answered anything; do not write "exactly" or "good" as if they had.',
@@ -35,6 +37,7 @@ export const SOLVER_SKILLS: string[] = [
   'Give any line you will need again an id and a short label when you first write it, so you can point back at it later.',
   'When you are stopped with a question, answer that question and nothing else, in one step. Do not use it as a chance to move the solution on.',
   'If you are not sure a fact, a formula or a step is right, do not write it as if you were. Check it with compute or run_code first; if you still cannot be sure, say so on the board in a text with tone "warn".',
+  'Draw a path through space or time — a thrown ball, a falling object, a position changing — as a plot (height against distance, or value against time), not as a diagram: diagram boxes have no geometry.',
   'Before you state the final answer, get it a second way — a different method, a limiting case, or putting it back into the question — and say which check you did.',
 ];
 

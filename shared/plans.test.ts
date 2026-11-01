@@ -48,7 +48,7 @@ describe('the plans', () => {
 
   it('are looked up by id, and an unknown id is nothing', () => {
     expect(planById('regular')?.priceUsd).toBe(12);
-    expect(planById('regular')?.creditUsd).toBe(7.75);
+    expect(planById('regular')?.creditUsd).toBe(8);
     expect(planById('enterprise')).toBeNull();
     expect(planById(undefined)).toBeNull();
   });

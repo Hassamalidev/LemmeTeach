@@ -84,6 +84,8 @@ describe('axe', () => {
       onSolve: () => {},
       onSeePlans: () => {},
       onReplay: () => {},
+      onHome: () => {},
+      draft: null,
       onOwnKey: () => {},
       onOpenSettings: () => {},
     };
@@ -99,7 +101,7 @@ describe('axe', () => {
   }, 30_000);
 
   it('the activation screen has no violations', async () => {
-    const violations = await auditing(<Activate onDone={() => {}} onBack={() => {}} onOwnKey={() => {}} />);
+    const violations = await auditing(<Activate paidCode={null} onDone={() => {}} onBack={() => {}} onOwnKey={() => {}} />);
     expect(violations, describeViolations(violations)).toEqual([]);
   });
 

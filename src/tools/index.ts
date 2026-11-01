@@ -38,6 +38,14 @@ export interface Tool {
    * repeats something the system prompt already says in fewer tokens.
    */
   wire?: (schema: JsonSchema) => JsonSchema;
+  /**
+   * Puts right the unambiguous slips in a call before it is checked, and says
+   * what was changed so the model writes it properly next time. A rejected
+   * call costs a whole turn; a tidied one costs nothing.
+   */
+  prepare?: (input: unknown) => { input: unknown; notes: string[] };
+  /** Adds to a rejection what the model needs to put it right. */
+  explain?: (input: unknown, paths: (string | number)[][]) => string;
   name: string;
   description: string;
   schema: ZodTypeAny;
@@ -157,17 +165,22 @@ export class ToolBus {
       );
     }
 
-    const parsed = tool.schema.safeParse(call.input);
+    const prepared = tool.prepare ? tool.prepare(call.input) : { input: call.input, notes: [] };
+    const parsed = tool.schema.safeParse(prepared.input);
     if (!parsed.success) {
       const problems = parsed.error.issues
         .slice(0, 4)
         .map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`)
         .join('; ');
+      const help = tool.explain?.(prepared.input, parsed.error.issues.map((i) => i.path)) ?? '';
       return finish(
         false,
-        `Those arguments do not fit ${tool.name}. ${problems}. Fix the named fields and call it again.`,
+        `Those arguments do not fit ${tool.name}. ${problems}. ${help ? `${help} ` : ''}Fix the named fields and call it again.`,
       );
     }
+    const tidied = prepared.notes.length
+      ? ` Accepted after a small correction: ${prepared.notes.join('; ')}. Write it that way from now on.`
+      : '';
 
     try {
       const outcome = await tool.run(parsed.data as never, ctx);
@@ -175,7 +188,7 @@ export class ToolBus {
         outcome.data === undefined
           ? (outcome.message ?? (outcome.ok ? 'done' : 'failed'))
           : stringifyResult(outcome.data, outcome.message);
-      return finish(outcome.ok, body);
+      return finish(outcome.ok, body + (outcome.ok ? tidied : ''));
     } catch (err) {
       const e = asChalkError(err);
       if (e.kind === 'AbortError') throw err; // Abort must unwind the loop.

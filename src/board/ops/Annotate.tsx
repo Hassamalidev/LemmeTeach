@@ -38,7 +38,7 @@ export function AnnotateOpView({
         setBox(null);
         return;
       }
-      const a = el.getBoundingClientRect();
+      const a = inkBox(el);
       const b = container.getBoundingClientRect();
       // The overlay scrolls with the page, so positions are in the page's own
       // coordinates rather than the viewport's.
@@ -69,6 +69,11 @@ export function AnnotateOpView({
 
   const visible = shown(revealed, 0);
   const pad = 8;
+  // The note gets a line of its own below the mark, so the stroke never runs
+  // through it.
+  const noteRoom = op.text ? 24 : 0;
+  const width = box.w + (pad + 6) * 2;
+  const height = box.h + (pad + 6) * 2 + noteRoom;
 
   return (
     <svg
@@ -77,10 +82,10 @@ export function AnnotateOpView({
       style={{
         left: box.x - pad - 6,
         top: box.y - pad - 6,
-        width: box.w + (pad + 6) * 2,
-        height: box.h + (pad + 6) * 2,
+        width,
+        height,
       }}
-      viewBox={`0 0 ${box.w + (pad + 6) * 2} ${box.h + (pad + 6) * 2}`}
+      viewBox={`0 0 ${width} ${height}`}
     >
       {op.style === 'circle' ? (
         <ellipse
@@ -126,8 +131,8 @@ export function AnnotateOpView({
 
       {op.text ? (
         <text
-          x={(box.w + (pad + 6) * 2) / 2}
-          y={box.h + (pad + 6) * 2 - 2}
+          x={width / 2}
+          y={height - 6}
           textAnchor="middle"
           className="annotate-text"
         >
@@ -136,6 +141,41 @@ export function AnnotateOpView({
       ) : null}
     </svg>
   );
+}
+
+/**
+ * The box around what is actually written in an element, not the element.
+ * Board operations are full-width blocks, so circling or underlining the
+ * block draws a line across the whole board; the writing inside is usually a
+ * fraction of that. Falls back to the element when there is nothing to
+ * measure.
+ */
+function inkBox(el: HTMLElement): { left: number; top: number; width: number; height: number } {
+  let left = Infinity;
+  let top = Infinity;
+  let right = -Infinity;
+  let bottom = -Infinity;
+  const add = (r: DOMRect): void => {
+    if (r.width <= 0 || r.height <= 0) return;
+    left = Math.min(left, r.left);
+    top = Math.min(top, r.top);
+    right = Math.max(right, r.right);
+    bottom = Math.max(bottom, r.bottom);
+  };
+  try {
+    for (const svg of el.querySelectorAll('svg')) add(svg.getBoundingClientRect());
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    const range = document.createRange();
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (!node.textContent?.trim() || node.parentElement?.closest('svg, .katex-mathml')) continue;
+      range.selectNodeContents(node);
+      add(range.getBoundingClientRect());
+    }
+  } catch {
+    /* Measuring is best effort. */
+  }
+  if (!Number.isFinite(left)) return el.getBoundingClientRect();
+  return { left, top, width: right - left, height: bottom - top };
 }
 
 /** A hand-drawn underline wobbles slightly; a perfectly straight one reads as a border. */
